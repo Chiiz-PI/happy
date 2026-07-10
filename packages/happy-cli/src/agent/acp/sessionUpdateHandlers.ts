@@ -31,6 +31,8 @@ export interface SessionUpdate {
   toolCallId?: string;
   status?: string;
   kind?: string | unknown;
+  title?: string | unknown;
+  rawInput?: unknown;
   content?: {
     text?: string;
     error?: string | { message?: string };
@@ -246,9 +248,12 @@ export function startToolCall(
   const toolKindStr = typeof toolKind === 'string' ? toolKind : undefined;
   const isInvestigation = ctx.transport.isInvestigationTool?.(toolCallId, toolKindStr) ?? false;
 
-  // Extract real tool name from toolCallId
+  // Extract real tool name from toolCallId, falling back to the standard
+  // ACP kind, then the human-readable title (some agents omit kind on the
+  // initial tool_call and only send a title).
+  const titleStr = typeof update.title === 'string' && update.title.length > 0 ? update.title : undefined;
   const extractedName = ctx.transport.extractToolNameFromId?.(toolCallId);
-  const realToolName = extractedName ?? (toolKindStr || 'unknown');
+  const realToolName = extractedName ?? toolKindStr ?? titleStr ?? 'unknown';
 
   // Store mapping for permission requests
   ctx.toolCallIdToNameMap.set(toolCallId, realToolName);
@@ -296,6 +301,12 @@ export function startToolCall(
   // Parse args and emit tool-call event
   const args = parseArgsFromContent(update.content);
 
+  // Merge standard ACP rawInput (the actual tool arguments) — many agents
+  // put inputs there rather than in content.
+  if (update.rawInput && typeof update.rawInput === 'object' && !Array.isArray(update.rawInput)) {
+    Object.assign(args, update.rawInput as Record<string, unknown>);
+  }
+
   // Extract locations if present
   if (update.locations && Array.isArray(update.locations)) {
     args.locations = update.locations;
@@ -308,7 +319,7 @@ export function startToolCall(
 
   ctx.emit({
     type: 'tool-call',
-    toolName: toolKindStr || 'unknown',
+    toolName: realToolName,
     args,
     callId: toolCallId,
   });
