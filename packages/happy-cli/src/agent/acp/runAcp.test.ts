@@ -165,7 +165,7 @@ vi.mock('./AcpBackend', () => ({
 
     async setSessionModel(modelId: string) {
       mocks.backendState.setModelCalls.push(modelId);
-      return true;
+      return { ok: true };
     }
 
     async cancel(sessionId: string) {

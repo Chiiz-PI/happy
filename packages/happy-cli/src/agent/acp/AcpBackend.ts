@@ -72,6 +72,10 @@ function logAcpBackendMuted(message: string): void {
   console.log(line);
 }
 
+function isErrorWithMessage(value: unknown): value is { message: string } {
+  return !!value && typeof value === 'object' && typeof (value as { message?: unknown }).message === 'string';
+}
+
 function summarizeSessionMetadataPayload(payload: unknown): string {
   if (!payload || typeof payload !== 'object') {
     return 'invalid payload';
@@ -1215,15 +1219,17 @@ export class AcpBackend implements AgentBackend {
 
   /**
    * Set the current ACP session model (UNSTABLE ACP capability).
-   * Returns false when unsupported or when the update fails.
+   * Returns the agent-reported error message on failure so callers can
+   * surface it to the user (e.g. Grok rejects switching to models that
+   * require a different agent type).
    */
-  async setSessionModel(modelId: string): Promise<boolean> {
+  async setSessionModel(modelId: string): Promise<{ ok: true } | { ok: false; error: string | null }> {
     if (this.disposed || !this.connection || !this.acpSessionId) {
-      return false;
+      return { ok: false, error: null };
     }
 
     if (typeof this.connection.unstable_setSessionModel !== 'function') {
-      return false;
+      return { ok: false, error: null };
     }
 
     try {
@@ -1231,10 +1237,13 @@ export class AcpBackend implements AgentBackend {
         sessionId: this.acpSessionId,
         modelId,
       });
-      return true;
+      return { ok: true };
     } catch (error) {
       logger.debug('[AcpBackend] Failed to set session model:', { modelId, error });
-      return false;
+      const message = error instanceof Error
+        ? error.message
+        : (isErrorWithMessage(error) ? error.message : null);
+      return { ok: false, error: message };
     }
   }
 

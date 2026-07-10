@@ -732,12 +732,20 @@ export async function runAcp(opts: {
     }
 
     const switched = await backend.setSessionModel(resolvedLegacyModel);
-    if (switched) {
+    if (switched.ok) {
       legacyModels = {
         ...legacyModels,
         currentModelId: resolvedLegacyModel,
       };
+      return;
     }
+
+    // Surface the failure to the client instead of failing silently — e.g.
+    // Grok rejects switching to models that require a different agent type.
+    const reason = switched.error ?? 'the agent rejected the request';
+    const failureMessage = `Could not switch model to ${resolvedLegacyModel}: ${reason}`;
+    logAcp('error', failureMessage);
+    session.sendSessionEvent({ type: 'message', message: failureMessage });
   };
 
   const onBackendMessage = (msg: AgentMessage) => {
