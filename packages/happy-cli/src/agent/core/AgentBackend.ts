@@ -88,6 +88,10 @@ export interface AcpAgentConfig extends AgentBackendConfig {
  */
 export interface StartSessionResult {
   sessionId: SessionId;
+  /** Provider-side session id (e.g. ACP sessionId), when the backend exposes one */
+  providerSessionId?: string;
+  /** True when the backend resumed an existing provider session instead of creating a new one */
+  resumed?: boolean;
 }
 
 /**

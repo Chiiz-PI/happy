@@ -4,6 +4,7 @@ export type ResumeCommandMetadata = {
     flavor?: string | null;
     claudeSessionId?: string | null;
     codexThreadId?: string | null;
+    acpSessionId?: string | null;
 };
 
 export type ResumeCommandBlock = {
@@ -26,6 +27,9 @@ function isWindows(metadata: ResumeCommandMetadata): boolean {
 function buildResumeInvocation(metadata: ResumeCommandMetadata): string | null {
     if ((metadata.flavor === 'codex' || metadata.flavor === 'openai' || metadata.flavor === 'gpt') && metadata.codexThreadId) {
         return `happy codex --resume ${metadata.codexThreadId}`;
+    }
+    if (metadata.flavor === 'grok' && metadata.acpSessionId) {
+        return `happy grok --resume ${metadata.acpSessionId}`;
     }
     if (metadata.claudeSessionId) {
         return `happy claude --resume ${metadata.claudeSessionId}`;

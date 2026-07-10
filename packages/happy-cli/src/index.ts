@@ -361,6 +361,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
 
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
       let verbose = false;
+      let resumeAcpSessionId: string | undefined = undefined;
       const passthroughArgs: string[] = [];
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--started-by') {
@@ -370,6 +371,10 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         if (args[i] === '--happy-starting-mode') {
           // Daemon spawn flag; ACP sessions are always remote-controlled.
           i++;
+          continue;
+        }
+        if (args[i] === '--resume') {
+          resumeAcpSessionId = args[++i];
           continue;
         }
         if (args[i] === '--verbose') {
@@ -387,6 +392,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         credentials,
         startedBy,
         verbose,
+        resumeAcpSessionId,
         agentName: resolved.agentName,
         command: resolved.command,
         args: resolved.args,
@@ -405,11 +411,16 @@ Conversation history is preserved on the server, but in-flight tool calls are in
 
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
       let verbose = false;
+      let resumeAcpSessionId: string | undefined = undefined;
       const acpArgs: string[] = [];
       let customCommandMode = false;
       for (let i = 1; i < args.length; i++) {
         if (!customCommandMode && args[i] === '--started-by') {
           startedBy = args[++i] as 'daemon' | 'terminal';
+          continue;
+        }
+        if (!customCommandMode && args[i] === '--resume') {
+          resumeAcpSessionId = args[++i];
           continue;
         }
         if (!customCommandMode && args[i] === '--verbose') {
@@ -430,6 +441,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         credentials,
         startedBy,
         verbose,
+        resumeAcpSessionId,
         agentName: resolved.agentName,
         command: resolved.command,
         args: resolved.args,

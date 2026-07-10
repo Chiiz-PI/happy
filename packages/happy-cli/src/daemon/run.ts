@@ -678,7 +678,8 @@ export async function startDaemon(): Promise<void> {
         // Fetch fresh metadata from server if needed.
         let metadata = tracked.happySessionMetadataFromLocalWebhook;
         const needsFetch = (!metadata.claudeSessionId && (!metadata.flavor || metadata.flavor === 'claude'))
-          || (!metadata.codexThreadId && metadata.flavor === 'codex');
+          || (!metadata.codexThreadId && metadata.flavor === 'codex')
+          || (!metadata.acpSessionId && metadata.flavor === 'grok');
         if (needsFetch) {
           logger.debug(`[DAEMON RUN] Session ${happySessionId} missing agent session ID in webhook metadata, fetching from server`);
           const serverMetadata = await fetchServerSessionMetadata(happySessionId, tracked.encryption.encryptionKey, tracked.encryption.encryptionVariant);

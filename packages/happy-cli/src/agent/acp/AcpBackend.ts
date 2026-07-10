@@ -197,6 +197,13 @@ export interface AcpBackendOptions {
   /** MCP servers to make available to the agent */
   mcpServers?: Record<string, McpServerConfig>;
 
+  /**
+   * Provider ACP session id to resume via session/load. Used when the agent
+   * advertises the loadSession capability; falls back to a new session when
+   * loading fails (expired/unknown session).
+   */
+  resumeSessionId?: string;
+
   /** Optional permission handler for tool approval */
   permissionHandler?: AcpPermissionHandler;
 
@@ -322,6 +329,12 @@ export class AcpBackend implements AgentBackend {
   private connection: ClientSideConnection | null = null;
   private acpSessionId: string | null = null;
   private disposed = false;
+  /**
+   * True while session/load replays historical events. Replayed updates only
+   * restore provider-side state; Happy already has the full history, so they
+   * must not be re-emitted (and re-persisted) as fresh events.
+   */
+  private suppressReplayUpdates = false;
   /** Track active tool calls to prevent duplicate events */
   private activeToolCalls = new Set<string>();
   private toolCallTimeouts = new Map<string, NodeJS.Timeout>();
@@ -749,55 +762,109 @@ export class AcpBackend implements AgentBackend {
           }))
         : [];
 
-      const newSessionRequest: NewSessionRequest = {
-        cwd: this.options.cwd,
-        mcpServers: mcpServers as unknown as NewSessionRequest['mcpServers'],
-      };
-
-      logger.debug(`[AcpBackend] Creating new session...`);
-
-      const sessionResponse = await withRetry(
-        async () => {
+      // Try to resume an existing provider session via session/load when the
+      // agent supports it. Replayed history only restores agent-side state —
+      // Happy already has the full history — so updates are suppressed while
+      // the load runs. Failures (expired/unknown session) fall back to a new
+      // session instead of blocking startup.
+      let resumed = false;
+      let sessionResponse: NewSessionResponse | null = null;
+      const resumeSessionId = this.options.resumeSessionId;
+      if (resumeSessionId && initializeResponse.agentCapabilities?.loadSession === true) {
+        logger.debug(`[AcpBackend] Loading existing session: ${resumeSessionId}`);
+        this.suppressReplayUpdates = true;
+        try {
           let timeoutHandle: NodeJS.Timeout | null = null;
-          try {
-            const result = await Promise.race([
-              startupFailurePromise,
-              this.connection!.newSession(newSessionRequest).then((res) => {
-                if (timeoutHandle) {
-                  clearTimeout(timeoutHandle);
-                  timeoutHandle = null;
-                }
-                return res;
-              }),
-              new Promise<never>((_, reject) => {
-                timeoutHandle = setTimeout(() => {
-                  reject(new Error(`New session timeout after ${initTimeout}ms - ${this.transport.agentName} did not respond`));
-                }, initTimeout);
-              }),
-            ]);
-            return result;
-          } finally {
+          const loadResponse = await Promise.race([
+            startupFailurePromise,
+            this.connection.loadSession({
+              sessionId: resumeSessionId,
+              cwd: this.options.cwd,
+              mcpServers: mcpServers as unknown as NewSessionRequest['mcpServers'],
+            }).then((res) => {
+              if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+              }
+              return res;
+            }),
+            new Promise<never>((_, reject) => {
+              timeoutHandle = setTimeout(() => {
+                reject(new Error(`Load session timeout after ${initTimeout}ms - ${this.transport.agentName} did not respond`));
+              }, initTimeout);
+            }),
+          ]).finally(() => {
             if (timeoutHandle) {
               clearTimeout(timeoutHandle);
             }
+          });
+          this.acpSessionId = resumeSessionId;
+          sessionResponse = { ...loadResponse, sessionId: resumeSessionId } as NewSessionResponse;
+          resumed = true;
+          logger.debug(`[AcpBackend] Session loaded: ${resumeSessionId}`);
+          if (this.options.verbose) {
+            logAcpBackendMuted(
+              `Incoming loadSession response from ${this.options.agentName}: ${summarizeSessionMetadataPayload(sessionResponse)}`,
+            );
           }
-        },
-        {
-          operationName: 'NewSession',
-          maxAttempts: RETRY_CONFIG.maxAttempts,
-          baseDelayMs: RETRY_CONFIG.baseDelayMs,
-          maxDelayMs: RETRY_CONFIG.maxDelayMs,
-          shouldRetry: (error) => !isNonRetryableStartupError(error),
+        } catch (error) {
+          logger.debug(`[AcpBackend] Failed to load session ${resumeSessionId}, falling back to new session:`, error);
+        } finally {
+          this.suppressReplayUpdates = false;
         }
-      );
-      this.acpSessionId = sessionResponse.sessionId;
-      logger.debug(`[AcpBackend] Session created: ${this.acpSessionId}`);
-      if (this.options.verbose) {
-        logAcpBackendMuted(
-          `Incoming newSession response from ${this.options.agentName}: ${summarizeSessionMetadataPayload(sessionResponse)}`,
-        );
       }
-      this.emitInitialSessionMetadata(sessionResponse);
+
+      if (!resumed) {
+        const newSessionRequest: NewSessionRequest = {
+          cwd: this.options.cwd,
+          mcpServers: mcpServers as unknown as NewSessionRequest['mcpServers'],
+        };
+
+        logger.debug(`[AcpBackend] Creating new session...`);
+
+        sessionResponse = await withRetry(
+          async () => {
+            let timeoutHandle: NodeJS.Timeout | null = null;
+            try {
+              const result = await Promise.race([
+                startupFailurePromise,
+                this.connection!.newSession(newSessionRequest).then((res) => {
+                  if (timeoutHandle) {
+                    clearTimeout(timeoutHandle);
+                    timeoutHandle = null;
+                  }
+                  return res;
+                }),
+                new Promise<never>((_, reject) => {
+                  timeoutHandle = setTimeout(() => {
+                    reject(new Error(`New session timeout after ${initTimeout}ms - ${this.transport.agentName} did not respond`));
+                  }, initTimeout);
+                }),
+              ]);
+              return result;
+            } finally {
+              if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+              }
+            }
+          },
+          {
+            operationName: 'NewSession',
+            maxAttempts: RETRY_CONFIG.maxAttempts,
+            baseDelayMs: RETRY_CONFIG.baseDelayMs,
+            maxDelayMs: RETRY_CONFIG.maxDelayMs,
+            shouldRetry: (error) => !isNonRetryableStartupError(error),
+          }
+        );
+        this.acpSessionId = sessionResponse.sessionId;
+        logger.debug(`[AcpBackend] Session created: ${this.acpSessionId}`);
+        if (this.options.verbose) {
+          logAcpBackendMuted(
+            `Incoming newSession response from ${this.options.agentName}: ${summarizeSessionMetadataPayload(sessionResponse)}`,
+          );
+        }
+      }
+      this.emitInitialSessionMetadata(sessionResponse!);
 
       this.emitIdleStatus();
 
@@ -810,7 +877,7 @@ export class AcpBackend implements AgentBackend {
         });
       }
 
-      return { sessionId };
+      return { sessionId, providerSessionId: this.acpSessionId ?? undefined, resumed };
 
     } catch (error) {
       // Log to file only, not console
@@ -892,6 +959,11 @@ export class AcpBackend implements AgentBackend {
 
     if (!update) {
       logger.debug('[AcpBackend] Received session update without update field:', params);
+      return;
+    }
+
+    if (this.suppressReplayUpdates) {
+      logger.debug(`[AcpBackend] Suppressing replayed session update: ${update.sessionUpdate}`);
       return;
     }
 

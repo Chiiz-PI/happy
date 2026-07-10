@@ -15,7 +15,8 @@ import { initialMachineMetadata } from '@/daemon/run';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
 import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
-import { encodeBase64 } from '@/api/encryption';
+import { encodeBase64, decodeBase64 } from '@/api/encryption';
+import type { Session as ApiSession } from '@/api/types';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { projectPath } from '@/projectPath';
@@ -472,6 +473,8 @@ export async function runAcp(opts: {
   args: string[];
   startedBy?: 'daemon' | 'terminal';
   verbose?: boolean;
+  /** Provider ACP session id to resume via session/load */
+  resumeAcpSessionId?: string;
 }): Promise<void> {
   const verbose = opts.verbose === true;
   const sessionTag = randomUUID();
@@ -494,7 +497,28 @@ export async function runAcp(opts: {
     startedBy: opts.startedBy,
     sandbox: settings.sandboxConfig,
   });
-  const response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
+
+  // Check for session reconnection env vars (set by daemon for resume-in-place)
+  const reconnectSessionId = process.env.HAPPY_RECONNECT_SESSION_ID;
+  const reconnectKeyBase64 = process.env.HAPPY_RECONNECT_ENCRYPTION_KEY;
+  const reconnectVariant = process.env.HAPPY_RECONNECT_ENCRYPTION_VARIANT as 'legacy' | 'dataKey' | undefined;
+
+  let response: ApiSession | null;
+  if (reconnectSessionId && reconnectKeyBase64 && reconnectVariant) {
+    logger.debug(`[${opts.agentName}] Reconnecting to existing session ${reconnectSessionId}`);
+    response = {
+      id: reconnectSessionId,
+      seq: parseInt(process.env.HAPPY_RECONNECT_SEQ || '0', 10),
+      encryptionKey: decodeBase64(reconnectKeyBase64),
+      encryptionVariant: reconnectVariant,
+      metadata,
+      metadataVersion: parseInt(process.env.HAPPY_RECONNECT_METADATA_VERSION || '0', 10),
+      agentState: state,
+      agentStateVersion: parseInt(process.env.HAPPY_RECONNECT_AGENT_STATE_VERSION || '0', 10),
+    };
+  } else {
+    response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
+  }
   if (response) {
     logAcp('muted', `Happy Session ID: ${response.id}`);
   }
@@ -515,6 +539,17 @@ export async function runAcp(opts: {
     },
   });
   session = initialSession;
+
+  // On reconnect, un-archive the session and skip replaying old messages.
+  if (reconnectSessionId) {
+    session.suppressNextArchiveSignal();
+    session.skipExistingMessages();
+    session.updateMetadata((meta) => ({
+      ...meta,
+      lifecycleState: 'running',
+      archivedBy: undefined,
+    }));
+  }
 
   if (response) {
     try {
@@ -564,6 +599,7 @@ export async function runAcp(opts: {
     permissionHandler,
     transportHandler: new DefaultTransport(opts.agentName),
     verbose,
+    resumeSessionId: opts.resumeAcpSessionId,
   });
 
   let thinking = false;
@@ -915,6 +951,26 @@ export async function runAcp(opts: {
   try {
     const started = await backend.startSession();
     acpSessionId = started.sessionId;
+
+    // Persist the provider ACP session id so the session can be resumed via
+    // session/load after a CLI restart.
+    if (started.providerSessionId) {
+      const providerSessionId = started.providerSessionId;
+      session.updateMetadata((currentMetadata) => ({
+        ...currentMetadata,
+        acpSessionId: providerSessionId,
+      }));
+    }
+    if (opts.resumeAcpSessionId) {
+      if (started.resumed) {
+        logAcp('muted', `Resumed ${opts.agentName} session ${opts.resumeAcpSessionId}`);
+        session.sendSessionEvent({ type: 'message', message: `Resumed ${opts.agentName} session ${opts.resumeAcpSessionId}` });
+      } else {
+        logAcp('error', `Could not resume ${opts.agentName} session ${opts.resumeAcpSessionId}; started a new session instead`);
+        session.sendSessionEvent({ type: 'message', message: `Could not resume ${opts.agentName} session ${opts.resumeAcpSessionId}; started a new session instead` });
+      }
+    }
+
     if (verbose) {
       if (!sawSlashCommands) {
         logAcp('muted', `Outgoing slash commands from ${opts.agentName}: not reported yet`);

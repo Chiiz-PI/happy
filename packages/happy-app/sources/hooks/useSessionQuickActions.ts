@@ -60,7 +60,11 @@ function getResumeAvailability(session: Session, machine: Machine | null | undef
         };
     }
 
-    const hasBackendResumeId = Boolean(session.metadata?.claudeSessionId || session.metadata?.codexThreadId);
+    const hasBackendResumeId = Boolean(
+        session.metadata?.claudeSessionId
+        || session.metadata?.codexThreadId
+        || (session.metadata?.flavor === 'grok' && session.metadata?.acpSessionId),
+    );
     if (!hasBackendResumeId) {
         const message = t('sessionInfo.resumeSessionMissingBackendId');
         return {

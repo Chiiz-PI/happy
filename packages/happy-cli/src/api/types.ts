@@ -303,6 +303,7 @@ export type Metadata = {
   machineId?: string,
   claudeSessionId?: string, // Claude Code session ID
   codexThreadId?: string, // Codex app-server thread ID
+  acpSessionId?: string, // Provider session ID for generic ACP agents (used with session/load)
   tools?: string[],
   slashCommands?: string[],
   mcpServers?: Array<{ name: string; status: string }>,
