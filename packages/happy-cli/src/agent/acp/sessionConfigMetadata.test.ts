@@ -3,6 +3,7 @@ import type { Metadata } from '@/api/types';
 import type { SessionConfigOption } from '@agentclientprotocol/sdk';
 import {
   extractConfigOptionsFromPayload,
+  extractCurrentModelContextWindow,
   filterModelsByCurrentAgentType,
   mergeAcpSessionConfigIntoMetadata,
 } from './sessionConfigMetadata';
@@ -223,5 +224,32 @@ describe('filterModelsByCurrentAgentType', () => {
       ],
     };
     expect(filterModelsByCurrentAgentType(models)).toBe(models);
+  });
+});
+
+describe('extractCurrentModelContextWindow', () => {
+  it('reads totalContextTokens of the current model', () => {
+    expect(extractCurrentModelContextWindow({
+      currentModelId: 'grok-4.5',
+      availableModels: [
+        { modelId: 'grok-4.5', name: 'Grok 4.5', _meta: { totalContextTokens: 500000 } },
+        { modelId: 'other', name: 'Other', _meta: { totalContextTokens: 200000 } },
+      ],
+    })).toBe(500000);
+  });
+
+  it('returns null when the annotation is missing or invalid', () => {
+    expect(extractCurrentModelContextWindow({
+      currentModelId: 'plain',
+      availableModels: [{ modelId: 'plain', name: 'Plain' }],
+    })).toBeNull();
+    expect(extractCurrentModelContextWindow({
+      currentModelId: 'bad',
+      availableModels: [{ modelId: 'bad', name: 'Bad', _meta: { totalContextTokens: -1 } }],
+    })).toBeNull();
+    expect(extractCurrentModelContextWindow({
+      currentModelId: 'missing',
+      availableModels: [{ modelId: 'else', name: 'Else', _meta: { totalContextTokens: 100 } }],
+    })).toBeNull();
   });
 });

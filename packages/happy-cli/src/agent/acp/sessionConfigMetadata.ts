@@ -192,6 +192,19 @@ export function filterModelsByCurrentAgentType(models: SessionModelState): Sessi
   return { ...models, availableModels };
 }
 
+/**
+ * Read the current model's context window size from the provider annotation
+ * (`availableModels[]._meta.totalContextTokens`, reported by e.g. Grok).
+ * Returns null when the annotation is absent.
+ */
+export function extractCurrentModelContextWindow(models: SessionModelState): number | null {
+  const current = models.availableModels.find((model) => model.modelId === models.currentModelId);
+  const totalContextTokens = current?._meta && isRecord(current._meta) ? current._meta.totalContextTokens : null;
+  return typeof totalContextTokens === 'number' && Number.isFinite(totalContextTokens) && totalContextTokens > 0
+    ? totalContextTokens
+    : null;
+}
+
 export function extractCurrentModeIdFromPayload(payload: unknown): string | null {
   if (!isRecord(payload)) {
     return null;

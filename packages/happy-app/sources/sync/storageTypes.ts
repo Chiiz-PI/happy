@@ -173,6 +173,7 @@ export interface Session {
         cacheCreation: number;
         cacheRead: number;
         contextSize: number;
+        contextWindow?: number | null;
         timestamp: number;
     } | null;
 }

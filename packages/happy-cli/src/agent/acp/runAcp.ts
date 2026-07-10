@@ -27,6 +27,7 @@ import {
   extractConfigOptionsFromPayload,
   extractCurrentModeIdFromPayload,
   extractModeStateFromPayload,
+  extractCurrentModelContextWindow,
   extractModelStateFromPayload,
   filterModelsByCurrentAgentType,
   mergeAcpSessionConfigIntoMetadata,
@@ -628,6 +629,7 @@ export async function runAcp(opts: {
   let thinking = false;
   let acpSessionId: string | null = null;
   let latestTurnUsage: SessionUsage | null = null;
+  let currentModelContextWindow: number | null = null;
   let shouldExit = false;
   let abortController = new AbortController();
   let pendingTurn: PendingTurn | null = null;
@@ -888,6 +890,7 @@ export async function runAcp(opts: {
           logger.debug(`[${opts.agentName}] Hiding models that require a different agent type: ${dropped.join(', ')}`);
         }
         legacyModels = models;
+        currentModelContextWindow = extractCurrentModelContextWindow(models);
         sawModels = true;
         if (verbose) {
           logAcp('muted', `Outgoing models from ${opts.agentName} (${models.availableModels.length}), current=${models.currentModelId}:`);
@@ -925,6 +928,9 @@ export async function runAcp(opts: {
     if (msg.type === 'token-count') {
       const usage = tokenCountToSessionUsage(msg);
       if (usage) {
+        if (currentModelContextWindow) {
+          usage.context_window = currentModelContextWindow;
+        }
         latestTurnUsage = usage;
         // Report to server-side usage accounting. ACP agents have no
         // pricing tables in Happy, so cost is reported as zero.

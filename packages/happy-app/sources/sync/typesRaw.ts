@@ -13,6 +13,8 @@ const usageDataSchema = z.object({
     cache_read_input_tokens: z.number().optional(),
     output_tokens: z.number(),
     service_tier: z.string().optional(),
+    // Model context window size, when the agent reports it (ACP turn-end usage)
+    context_window: z.number().optional(),
 });
 
 export type UsageData = z.infer<typeof usageDataSchema>;

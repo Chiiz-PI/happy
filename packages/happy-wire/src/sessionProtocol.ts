@@ -78,6 +78,10 @@ export const sessionUsageSchema = z.object({
   output_tokens: z.number(),
   cache_creation_input_tokens: z.number().optional(),
   cache_read_input_tokens: z.number().optional(),
+  // Context window size of the model that produced this turn, when the
+  // agent reports it (e.g. ACP availableModels[]._meta.totalContextTokens).
+  // Lets clients compute context headroom without hardcoding a window size.
+  context_window: z.number().optional(),
 });
 export type SessionUsage = z.infer<typeof sessionUsageSchema>;
 

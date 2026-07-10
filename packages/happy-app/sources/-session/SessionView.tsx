@@ -580,6 +580,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             cacheCreation: source.cacheCreation,
             cacheRead: source.cacheRead,
             contextSize: source.contextSize,
+            contextWindow: source.contextWindow ?? null,
         };
     }, [sessionUsage, session.latestUsage]);
 

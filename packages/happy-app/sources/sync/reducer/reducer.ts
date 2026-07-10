@@ -163,6 +163,7 @@ export type ReducerState = {
         cacheCreation: number;
         cacheRead: number;
         contextSize: number;
+        contextWindow: number | null;
         timestamp: number;
     };
 };
@@ -241,6 +242,7 @@ export type ReducerResult = {
         cacheCreation: number;
         cacheRead: number;
         contextSize: number;
+        contextWindow: number | null;
     };
     hasReadyEvent?: boolean;
 };
@@ -333,6 +335,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                 cacheCreation: 0,
                 cacheRead: 0,
                 contextSize: 0,
+                contextWindow: state.latestUsage?.contextWindow ?? null,
                 timestamp: msg.createdAt  // Use message timestamp to avoid blocking older usage data
             };
             // Don't continue - let the event be processed normally to create a message
@@ -347,6 +350,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                 cacheCreation: 0,
                 cacheRead: 0,
                 contextSize: 0,
+                contextWindow: state.latestUsage?.contextWindow ?? null,
                 timestamp: msg.createdAt  // Use message timestamp to avoid blocking older usage data
             };
             // Don't continue - let the event be processed normally to create a message
@@ -1137,7 +1141,8 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
             outputTokens: state.latestUsage.outputTokens,
             cacheCreation: state.latestUsage.cacheCreation,
             cacheRead: state.latestUsage.cacheRead,
-            contextSize: state.latestUsage.contextSize
+            contextSize: state.latestUsage.contextSize,
+            contextWindow: state.latestUsage.contextWindow
         } : undefined,
         hasReadyEvent: hasReadyEvent || undefined
     };
@@ -1160,6 +1165,7 @@ function processUsageData(state: ReducerState, usage: UsageData, timestamp: numb
             cacheCreation: usage.cache_creation_input_tokens || 0,
             cacheRead: usage.cache_read_input_tokens || 0,
             contextSize: (usage.cache_creation_input_tokens || 0) + (usage.cache_read_input_tokens || 0) + usage.input_tokens,
+            contextWindow: usage.context_window ?? state.latestUsage?.contextWindow ?? null,
             timestamp: timestamp
         };
     }
