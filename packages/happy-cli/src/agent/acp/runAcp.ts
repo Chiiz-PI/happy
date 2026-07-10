@@ -6,7 +6,7 @@ import type { AgentMessage } from '@/agent/core';
 import { AcpBackend, type AcpPermissionHandler } from './AcpBackend';
 import { DefaultTransport } from '@/agent/transport';
 import { AcpSessionManager } from './AcpSessionManager';
-import type { SessionEnvelope } from '@slopus/happy-wire';
+import type { SessionEnvelope, SessionUsage } from '@slopus/happy-wire';
 import { logger } from '@/ui/logger';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { hashObject } from '@/utils/deterministicJson';
@@ -286,6 +286,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object';
 }
 
+function tokenCountToSessionUsage(msg: Record<string, unknown>): SessionUsage | null {
+  if (typeof msg.input_tokens !== 'number' || typeof msg.output_tokens !== 'number') {
+    return null;
+  }
+  return {
+    input_tokens: msg.input_tokens,
+    output_tokens: msg.output_tokens,
+    ...(typeof msg.cache_creation_input_tokens === 'number'
+      ? { cache_creation_input_tokens: msg.cache_creation_input_tokens }
+      : {}),
+    ...(typeof msg.cache_read_input_tokens === 'number'
+      ? { cache_read_input_tokens: msg.cache_read_input_tokens }
+      : {}),
+  };
+}
+
 function isSelectValue(value: unknown): value is { value: string; name: string } {
   return isRecord(value) && typeof value.value === 'string' && typeof value.name === 'string';
 }
@@ -552,6 +568,7 @@ export async function runAcp(opts: {
 
   let thinking = false;
   let acpSessionId: string | null = null;
+  let latestTurnUsage: SessionUsage | null = null;
   let shouldExit = false;
   let abortController = new AbortController();
   let pendingTurn: PendingTurn | null = null;
@@ -806,6 +823,20 @@ export async function runAcp(opts: {
       }
     }
 
+    if (msg.type === 'token-count') {
+      const usage = tokenCountToSessionUsage(msg);
+      if (usage) {
+        latestTurnUsage = usage;
+        // Report to server-side usage accounting. ACP agents have no
+        // pricing tables in Happy, so cost is reported as zero.
+        const model = typeof msg.model === 'string' ? msg.model : undefined;
+        session.sendUsageData(usage, model, {
+          key: `${opts.agentName}-session`,
+          cost: { total: 0, input: 0, output: 0 },
+        });
+      }
+    }
+
     if (msg.type === 'status') {
       const suffix = msg.detail ? `: ${msg.detail}` : '';
       const statusLine = `Status: ${msg.status}${suffix}`;
@@ -923,9 +954,10 @@ export async function runAcp(opts: {
         if (typeof batch.mode.model === 'string' && batch.mode.model.length > 0) {
           await switchModelIfRequested(batch.mode.model);
         }
+        latestTurnUsage = null;
         await backend.sendPrompt(acpSessionId, batch.message);
         await turnEnded;
-        sendEnvelopes(sessionManager.endTurn('completed'));
+        sendEnvelopes(sessionManager.endTurn('completed', latestTurnUsage ?? undefined));
         session.sendSessionEvent({ type: 'ready' });
         if (verbose) {
           logAcp('muted', `Outgoing prompt completion from ${opts.agentName}`);

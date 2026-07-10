@@ -29,6 +29,27 @@ describe('AcpSessionManager turn lifecycle', () => {
     expect(ended[0].turn).toBe(started[0].turn);
   });
 
+  it('attaches per-turn usage to the turn-end envelope when provided', () => {
+    const mapper = new AcpSessionManager();
+    mapper.startTurn();
+    const ended = mapper.endTurn('completed', {
+      input_tokens: 166,
+      output_tokens: 41,
+      cache_read_input_tokens: 12544,
+    });
+
+    expect(ended).toHaveLength(1);
+    expect(ended[0].ev).toEqual({
+      t: 'turn-end',
+      status: 'completed',
+      usage: {
+        input_tokens: 166,
+        output_tokens: 41,
+        cache_read_input_tokens: 12544,
+      },
+    });
+  });
+
   it('emits failed turn-end from endTurn()', () => {
     const mapper = new AcpSessionManager();
     const started = mapper.startTurn();

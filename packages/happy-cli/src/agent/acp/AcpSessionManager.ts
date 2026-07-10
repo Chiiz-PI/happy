@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { createEnvelope, type CreateEnvelopeOptions, type SessionEnvelope } from '@slopus/happy-wire';
+import { createEnvelope, type CreateEnvelopeOptions, type SessionEnvelope, type SessionUsage } from '@slopus/happy-wire';
 import type { AgentMessage } from '@/agent/core';
 
 function turnOptions(turnId: string | null, time: number): CreateEnvelopeOptions {
@@ -85,7 +85,7 @@ export class AcpSessionManager {
     ];
   }
 
-  endTurn(status: 'completed' | 'failed' | 'cancelled'): SessionEnvelope[] {
+  endTurn(status: 'completed' | 'failed' | 'cancelled', usage?: SessionUsage): SessionEnvelope[] {
     const flushed = this.flush();
     if (!this.currentTurnId) {
       return flushed;
@@ -96,7 +96,7 @@ export class AcpSessionManager {
     this.acpCallToSessionCall.clear();
     return [
       ...flushed,
-      createEnvelope('agent', { t: 'turn-end', status }, { turn: turnId, time: this.nextTime() }),
+      createEnvelope('agent', { t: 'turn-end', status, ...(usage ? { usage } : {}) }, { turn: turnId, time: this.nextTime() }),
     ];
   }
 

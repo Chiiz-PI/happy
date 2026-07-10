@@ -34,6 +34,7 @@ import type {
 import { logger } from '@/ui/logger';
 import { delay } from '@/utils/time';
 import { selectAcpPermissionOutcome } from './permissionOptionSelection';
+import { extractAcpTokenUsage } from './acpTokenUsage';
 import packageJson from '../../../package.json';
 
 /**
@@ -1033,8 +1034,14 @@ export class AcpBackend implements AgentBackend {
       };
 
       logger.debug(`[AcpBackend] Prompt request:`, JSON.stringify(promptRequest, null, 2));
-      await this.connection.prompt(promptRequest);
+      const promptResponse = await this.connection.prompt(promptRequest);
       logger.debug('[AcpBackend] Prompt request sent to ACP connection');
+
+      const tokenUsage = extractAcpTokenUsage(promptResponse);
+      if (tokenUsage) {
+        logger.debug('[AcpBackend] Prompt token usage:', JSON.stringify(tokenUsage));
+        this.emit({ type: 'token-count', ...tokenUsage });
+      }
       
       // Don't emit 'idle' here - it will be emitted after all message chunks are received
       // The idle timeout in handleSessionUpdate will emit 'idle' after the last chunk

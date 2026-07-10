@@ -874,15 +874,15 @@ export class ApiSessionClient extends EventEmitter {
     /**
      * Send usage data to the server
      */
-    sendUsageData(usage: Usage, model?: string) {
+    sendUsageData(usage: Usage, model?: string, opts?: { key?: string; cost?: { total: number; input: number; output: number } }) {
         // Calculate total tokens
         const totalTokens = usage.input_tokens + usage.output_tokens + (usage.cache_creation_input_tokens || 0) + (usage.cache_read_input_tokens || 0);
 
-        const costs = calculateCost(usage, model);
+        const costs = opts?.cost ?? calculateCost(usage, model);
 
         // Transform Claude usage format to backend expected format
         const usageReport = {
-            key: 'claude-session',
+            key: opts?.key ?? 'claude-session',
             sessionId: this.sessionId,
             tokens: {
                 total: totalTokens,

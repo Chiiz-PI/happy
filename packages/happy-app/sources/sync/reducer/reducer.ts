@@ -307,6 +307,10 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
             // Mark as processed to prevent duplication but don't add to messages
             state.messageIds.set(msg.id, msg.id);
             hasReadyEvent = true;
+            // Turn-end envelopes may carry per-turn token usage (ACP sessions)
+            if (msg.usage) {
+                processUsageData(state, msg.usage, msg.createdAt);
+            }
             continue;
         }
 
