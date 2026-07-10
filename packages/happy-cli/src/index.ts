@@ -362,6 +362,8 @@ Conversation history is preserved on the server, but in-flight tool calls are in
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
       let verbose = false;
       let resumeAcpSessionId: string | undefined = undefined;
+      let initialPermissionMode: string | undefined = undefined;
+      let initialModel: string | undefined = undefined;
       const passthroughArgs: string[] = [];
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--started-by') {
@@ -375,6 +377,14 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         }
         if (args[i] === '--resume') {
           resumeAcpSessionId = args[++i];
+          continue;
+        }
+        if (args[i] === '--permission-mode') {
+          initialPermissionMode = args[++i];
+          continue;
+        }
+        if (args[i] === '--model') {
+          initialModel = args[++i];
           continue;
         }
         if (args[i] === '--verbose') {
@@ -393,6 +403,8 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         startedBy,
         verbose,
         resumeAcpSessionId,
+        initialPermissionMode,
+        initialModel,
         agentName: resolved.agentName,
         command: resolved.command,
         args: resolved.args,
@@ -412,6 +424,8 @@ Conversation history is preserved on the server, but in-flight tool calls are in
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
       let verbose = false;
       let resumeAcpSessionId: string | undefined = undefined;
+      let initialPermissionMode: string | undefined = undefined;
+      let initialModel: string | undefined = undefined;
       const acpArgs: string[] = [];
       let customCommandMode = false;
       for (let i = 1; i < args.length; i++) {
@@ -421,6 +435,14 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         }
         if (!customCommandMode && args[i] === '--resume') {
           resumeAcpSessionId = args[++i];
+          continue;
+        }
+        if (!customCommandMode && args[i] === '--permission-mode') {
+          initialPermissionMode = args[++i];
+          continue;
+        }
+        if (!customCommandMode && args[i] === '--model') {
+          initialModel = args[++i];
           continue;
         }
         if (!customCommandMode && args[i] === '--verbose') {
@@ -442,6 +464,8 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         startedBy,
         verbose,
         resumeAcpSessionId,
+        initialPermissionMode,
+        initialModel,
         agentName: resolved.agentName,
         command: resolved.command,
         args: resolved.args,

@@ -22,6 +22,7 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { projectPath } from '@/projectPath';
 import { BasePermissionHandler, type PermissionResult } from '@/utils/BasePermissionHandler';
 import { connectionState } from '@/utils/serverConnectionErrors';
+import { isClientAcpPermissionMode, resolveClientAutoDecision } from './clientPermissionModes';
 import {
   extractConfigOptionsFromPayload,
   extractCurrentModeIdFromPayload,
@@ -424,6 +425,7 @@ function resolveRequestedLegacyModelCode(models: SessionModelState, requested: s
 
 class GenericAcpPermissionHandler extends BasePermissionHandler implements AcpPermissionHandler {
   private readonly logPrefix: string;
+  private clientPermissionMode: string | undefined;
 
   constructor(session: ApiSessionClient, agentName: string) {
     super(session);
@@ -434,7 +436,22 @@ class GenericAcpPermissionHandler extends BasePermissionHandler implements AcpPe
     return this.logPrefix;
   }
 
+  /**
+   * Set the client-side permission mode ('acceptEdits'/'bypassPermissions'),
+   * used for agents that expose no agent-side approval modes. Pass undefined
+   * to restore default prompting.
+   */
+  setClientPermissionMode(mode: string | undefined): void {
+    this.clientPermissionMode = mode;
+  }
+
   async handleToolCall(toolCallId: string, toolName: string, input: unknown): Promise<PermissionResult> {
+    const autoDecision = resolveClientAutoDecision(this.clientPermissionMode, toolName);
+    if (autoDecision) {
+      logger.debug(`${this.logPrefix} Auto-approving ${toolName} (${toolCallId}) via client permission mode: ${this.clientPermissionMode}`);
+      return { decision: autoDecision };
+    }
+
     return new Promise<PermissionResult>((resolve, reject) => {
       this.pendingRequests.set(toolCallId, {
         resolve,
@@ -476,6 +493,10 @@ export async function runAcp(opts: {
   verbose?: boolean;
   /** Provider ACP session id to resume via session/load */
   resumeAcpSessionId?: string;
+  /** Permission mode to apply at startup (daemon resume passes --permission-mode) */
+  initialPermissionMode?: string;
+  /** Model to request at startup (daemon resume passes --model) */
+  initialModel?: string;
 }): Promise<void> {
   const verbose = opts.verbose === true;
   const sessionTag = randomUUID();
@@ -574,6 +595,7 @@ export async function runAcp(opts: {
   const sessionManager = new AcpSessionManager();
   const messageQueue = new MessageQueue2<AcpSwitchMode>((mode) => hashObject(mode));
   let currentPermissionMode: string | undefined;
+  let clientPermissionMode: string | undefined;
   let currentModel: string | null | undefined;
   let modeSelector: AcpConfigSelector | null = null;
   let modelSelector: AcpConfigSelector | null = null;
@@ -660,10 +682,27 @@ export async function runAcp(opts: {
       return;
     }
 
+    // Fallback for agents without agent-side approval modes (e.g. Grok):
+    // enforce the mode client-side by auto-answering permission requests.
+    const applyClientPermissionMode = (): boolean => {
+      if (!isClientAcpPermissionMode(requestedMode)) {
+        return false;
+      }
+      const nextMode = requestedMode === 'default' ? undefined : requestedMode;
+      if (nextMode !== clientPermissionMode) {
+        clientPermissionMode = nextMode;
+        permissionHandler.setClientPermissionMode(nextMode);
+        logAcp('muted', `Permission mode: ${requestedMode} (enforced client-side)`);
+      }
+      return true;
+    };
+
     if (modeSelector) {
       const resolved = resolveRequestedCode(modeSelector.options, requestedMode);
       if (!resolved) {
-        logger.debug(`[${opts.agentName}] Ignoring unknown ACP permission mode request: ${requestedMode}`);
+        if (!applyClientPermissionMode()) {
+          logger.debug(`[${opts.agentName}] Ignoring unknown ACP permission mode request: ${requestedMode}`);
+        }
         return;
       }
       if (resolved === modeSelector.currentCode) {
@@ -672,17 +711,23 @@ export async function runAcp(opts: {
       const switched = await backend.setSessionConfigOption(modeSelector.configId, resolved);
       if (switched) {
         modeSelector.currentCode = resolved;
+        // Agent-side mode is authoritative; drop any client-side override.
+        clientPermissionMode = undefined;
+        permissionHandler.setClientPermissionMode(undefined);
         return;
       }
     }
 
     if (!legacyModes) {
+      applyClientPermissionMode();
       return;
     }
 
     const resolvedLegacyMode = resolveRequestedLegacyModeCode(legacyModes, requestedMode);
     if (!resolvedLegacyMode) {
-      logger.debug(`[${opts.agentName}] Ignoring unknown ACP legacy mode request: ${requestedMode}`);
+      if (!applyClientPermissionMode()) {
+        logger.debug(`[${opts.agentName}] Ignoring unknown ACP legacy mode request: ${requestedMode}`);
+      }
       return;
     }
     if (resolvedLegacyMode === legacyModes.currentModeId) {
@@ -695,6 +740,8 @@ export async function runAcp(opts: {
         ...legacyModes,
         currentModeId: resolvedLegacyMode,
       };
+      clientPermissionMode = undefined;
+      permissionHandler.setClientPermissionMode(undefined);
     }
   };
 
@@ -985,6 +1032,15 @@ export async function runAcp(opts: {
         logAcp('error', `Could not resume ${opts.agentName} session ${opts.resumeAcpSessionId}; started a new session instead`);
         session.sendSessionEvent({ type: 'message', message: `Could not resume ${opts.agentName} session ${opts.resumeAcpSessionId}; started a new session instead` });
       }
+    }
+
+    if (opts.initialPermissionMode) {
+      currentPermissionMode = opts.initialPermissionMode;
+      await switchPermissionModeIfRequested(opts.initialPermissionMode);
+    }
+    if (opts.initialModel && opts.initialModel !== 'default') {
+      currentModel = opts.initialModel;
+      await switchModelIfRequested(opts.initialModel);
     }
 
     if (verbose) {

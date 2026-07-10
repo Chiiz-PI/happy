@@ -108,12 +108,15 @@ export function getOpenClawPermissionModes(translate: Translate): PermissionMode
     ];
 }
 
-// Grok exposes no ACP permission/sandbox modes; its private high/medium/low
-// session config is reasoning effort, not an approval mode, so it must not be
-// surfaced here.
+// Grok exposes no ACP permission/sandbox modes (its private high/medium/low
+// session config is reasoning effort, not approval modes). acceptEdits and
+// bypassPermissions are enforced client-side by the ACP runner, which
+// auto-answers Grok's permission requests.
 export function getGrokPermissionModes(translate: Translate): PermissionMode[] {
     return [
         { key: 'default', name: translate('agentInput.permissionMode.default'), description: null },
+        { key: 'acceptEdits', name: translate('agentInput.permissionMode.acceptEdits'), description: null },
+        { key: 'bypassPermissions', name: translate('agentInput.permissionMode.bypassPermissions'), description: null },
     ];
 }
 
