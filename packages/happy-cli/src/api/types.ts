@@ -66,6 +66,8 @@ export interface ClientToServerEvents {
     mode?: 'local' | 'remote';
   }) => void
   'session-end': (data: { sid: string, time: number }) => void,
+  // Transient typewriter preview; draft is session-encrypted, null clears
+  'message-draft': (data: { sid: string, draft: string | null }) => void,
   'update-metadata': (data: { sid: string, expectedVersion: number, metadata: string }, cb: (answer: {
     result: 'error'
   } | {

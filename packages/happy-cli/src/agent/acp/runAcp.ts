@@ -5,7 +5,7 @@ import type { ApiSessionClient } from '@/api/apiSession';
 import type { AgentMessage } from '@/agent/core';
 import { AcpBackend, type AcpPermissionHandler } from './AcpBackend';
 import { DefaultTransport } from '@/agent/transport';
-import { AcpSessionManager } from './AcpSessionManager';
+import { AcpSessionManager, type AcpSessionDraft } from './AcpSessionManager';
 import type { SessionEnvelope, SessionUsage } from '@slopus/happy-wire';
 import { logger } from '@/ui/logger';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
@@ -35,6 +35,8 @@ import {
 import type { SessionConfigOption, SessionModeState, SessionModelState } from '@agentclientprotocol/sdk';
 
 const TURN_TIMEOUT_MS = 5 * 60 * 1000;
+const DRAFT_THROTTLE_MS = 250;
+const DRAFT_MAX_CHARS = 32000;
 const ACP_EVENT_PREVIEW_CHARS = 240;
 const ACP_RAW_PREVIEW_CHARS = 2000;
 const ACP_COLOR_RESET = '\u001b[0m';
@@ -593,7 +595,45 @@ export async function runAcp(opts: {
   // process that died while a tool prompt was open — see the matching
   // call in claudeRemoteLauncher for the full rationale.
   permissionHandler.reset('Previous CLI process exited before responding');
-  const sessionManager = new AcpSessionManager();
+
+  // Typewriter previews: forward the session manager's unflushed text block
+  // as throttled ephemeral drafts. Clears (null) are sent immediately so the
+  // preview never lingers past its final message.
+  let draftTimer: NodeJS.Timeout | null = null;
+  let pendingDraft: AcpSessionDraft | null = null;
+  const sendDraftNow = (draft: AcpSessionDraft | null) => {
+    try {
+      if (draft && draft.text.length > DRAFT_MAX_CHARS) {
+        draft = { ...draft, text: draft.text.slice(-DRAFT_MAX_CHARS) };
+      }
+      session.sendSessionDraft(draft);
+    } catch (error) {
+      logger.debug(`[${opts.agentName}] Failed to send message draft:`, error);
+    }
+  };
+  const onDraft = (draft: AcpSessionDraft | null) => {
+    if (draft === null) {
+      if (draftTimer) {
+        clearTimeout(draftTimer);
+        draftTimer = null;
+      }
+      pendingDraft = null;
+      sendDraftNow(null);
+      return;
+    }
+    pendingDraft = draft;
+    if (!draftTimer) {
+      draftTimer = setTimeout(() => {
+        draftTimer = null;
+        if (pendingDraft) {
+          sendDraftNow(pendingDraft);
+          pendingDraft = null;
+        }
+      }, DRAFT_THROTTLE_MS);
+    }
+  };
+
+  const sessionManager = new AcpSessionManager({ onDraft });
   const messageQueue = new MessageQueue2<AcpSwitchMode>((mode) => hashObject(mode));
   let currentPermissionMode: string | undefined;
   let clientPermissionMode: string | undefined;
@@ -1107,6 +1147,10 @@ export async function runAcp(opts: {
   } finally {
     clearInterval(keepAliveInterval);
     reconnectionHandle?.cancel();
+    if (draftTimer) {
+      clearTimeout(draftTimer);
+      draftTimer = null;
+    }
     clearPendingTurn(new Error('ACP runner shutting down'));
 
     try {

@@ -193,6 +193,11 @@ export type EphemeralEvent = {
     title: string;
     body: string;
     timestamp: number;
+} | {
+    type: 'message-draft';
+    id: string;
+    draft: string | null; // session-encrypted draft payload (base64), null clears
+    timestamp: number;
 };
 
 // === EVENT PAYLOAD TYPES ===
@@ -523,6 +528,21 @@ export function buildUsageEphemeral(sessionId: string, key: string, tokens: Reco
         tokens,
         cost,
         timestamp: Date.now()
+    };
+}
+
+/**
+ * Transient in-progress message draft for a session. `draft` is an opaque
+ * session-encrypted payload produced by the CLI while the agent is streaming
+ * a reply; clients render it as a live-updating bubble and drop it when the
+ * final message arrives. Null clears the draft. Never persisted.
+ */
+export function buildMessageDraftEphemeral(sessionId: string, draft: string | null, timestamp: number): EphemeralPayload {
+    return {
+        type: 'message-draft',
+        id: sessionId,
+        draft,
+        timestamp
     };
 }
 

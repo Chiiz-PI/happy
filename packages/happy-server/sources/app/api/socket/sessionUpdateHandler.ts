@@ -1,6 +1,6 @@
 import { getMetricsLabelsFromSocket, sessionAliveEventsCounter, websocketEventsCounter } from "@/app/monitoring/metrics2";
 import { activityCache } from "@/app/presence/sessionCache";
-import { buildNewMessageUpdate, buildSessionActivityEphemeral, buildUpdateSessionUpdate, ClientConnection, eventRouter } from "@/app/events/eventRouter";
+import { buildMessageDraftEphemeral, buildNewMessageUpdate, buildSessionActivityEphemeral, buildUpdateSessionUpdate, ClientConnection, eventRouter } from "@/app/events/eventRouter";
 import { db } from "@/storage/db";
 import { allocateSessionSeq, allocateUserSeq } from "@/storage/seq";
 import { AsyncLock } from "@/utils/lock";
@@ -180,6 +180,42 @@ export function sessionUpdateHandler(userId: string, socket: Socket, connection:
             });
         } catch (error) {
             log({ module: 'websocket', level: 'error' }, `Error in session-alive: ${error}`);
+        }
+    });
+
+    socket.on('message-draft', async (data: {
+        sid: string;
+        draft: string | null;
+    }) => {
+        try {
+            websocketEventsCounter.inc({ event_type: 'message-draft', ...labels });
+
+            // Basic validation. Drafts are transient previews; oversized or
+            // malformed payloads are dropped instead of erroring.
+            if (!data || !data.sid) {
+                return;
+            }
+            if (data.draft !== null && typeof data.draft !== 'string') {
+                return;
+            }
+            if (typeof data.draft === 'string' && data.draft.length > 131072) {
+                return;
+            }
+
+            const isValid = await activityCache.isSessionValid(data.sid, userId);
+            if (!isValid) {
+                return;
+            }
+
+            // Fan out to clients watching this session. Never persisted.
+            eventRouter.emitEphemeral({
+                userId,
+                payload: buildMessageDraftEphemeral(data.sid, data.draft, Date.now()),
+                recipientFilter: { type: 'all-interested-in-session', sessionId: data.sid },
+                skipSenderConnection: connection
+            });
+        } catch (error) {
+            log({ module: 'websocket', level: 'error' }, `Error in message-draft: ${error}`);
         }
     });
 

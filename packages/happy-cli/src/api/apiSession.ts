@@ -872,6 +872,19 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     /**
+     * Send a transient in-progress message draft (typewriter preview).
+     * The payload is session-encrypted like message content; null clears the
+     * draft. Never persisted server-side — clients watching the session get
+     * it as an ephemeral update.
+     */
+    sendSessionDraft(draft: { text: string; thinking: boolean } | null) {
+        this.socket.emit('message-draft', {
+            sid: this.sessionId,
+            draft: draft ? encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, draft)) : null,
+        });
+    }
+
+    /**
      * Send usage data to the server
      */
     sendUsageData(usage: Usage, model?: string, opts?: { key?: string; cost?: { total: number; input: number; output: number } }) {

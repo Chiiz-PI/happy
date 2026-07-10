@@ -6,6 +6,7 @@ import { useCallback } from 'react';
 import { useHeaderHeight } from '@/utils/responsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessageView } from './MessageView';
+import { DraftMessageView } from './DraftMessageView';
 import { AgentWorkGroupView, ToolGroupView } from './ToolGroupView';
 import { DuplicateSheet } from './DuplicateSheet';
 import { Metadata, Session } from '@/sync/storageTypes';
@@ -53,8 +54,13 @@ const ListHeader = React.memo((props: { isLoadingOlder: boolean }) => {
 
 const ListFooter = React.memo((props: { sessionId: string }) => {
     const session = useSession(props.sessionId)!;
+    // Rendered as ListHeaderComponent of the inverted list — the visual
+    // bottom. The draft preview sits directly below the newest message.
     return (
-        <ChatFooter controlledByUser={session.agentState?.controlledByUser || false} />
+        <View>
+            <DraftMessageView sessionId={props.sessionId} />
+            <ChatFooter controlledByUser={session.agentState?.controlledByUser || false} />
+        </View>
     )
 });
 

@@ -222,11 +222,20 @@ export const ApiEphemeralSessionEventUpdateSchema = z.object({
     timestamp: z.number(),
 });
 
+export const ApiEphemeralMessageDraftUpdateSchema = z.object({
+    type: z.literal('message-draft'),
+    id: z.string(), // session id
+    // Session-encrypted draft payload (base64); null clears the draft
+    draft: z.string().nullable(),
+    timestamp: z.number(),
+});
+
 export const ApiEphemeralUpdateSchema = z.union([
     ApiEphemeralActivityUpdateSchema,
     ApiEphemeralUsageUpdateSchema,
     ApiEphemeralMachineActivityUpdateSchema,
     ApiEphemeralSessionEventUpdateSchema,
+    ApiEphemeralMessageDraftUpdateSchema,
 ]);
 
 export type ApiEphemeralActivityUpdate = z.infer<typeof ApiEphemeralActivityUpdateSchema>;

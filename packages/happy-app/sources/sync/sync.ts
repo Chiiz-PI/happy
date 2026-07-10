@@ -2715,8 +2715,55 @@ class Sync {
             notifyUnreadMessage();
         }
 
+        // Transient typewriter preview streamed while the agent composes a reply
+        if (updateData.type === 'message-draft') {
+            this.handleMessageDraft(updateData.id, updateData.draft, updateData.timestamp);
+        }
+
         // daemon-status ephemeral updates are deprecated, machine status is handled via machine-activity
     }
+
+    // Delayed draft clears, keyed by session id. When the CLI flushes a text
+    // block it clears the draft immediately, but the final message still has
+    // a DB round-trip ahead of it — clearing the preview right away would
+    // flash empty before the message lands. Instead the clear is delayed and
+    // cancelled by whichever comes first: a newer draft or the final agent
+    // message (applyMessages drops the draft in the store).
+    private draftClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    private handleMessageDraft = (sessionId: string, draft: string | null, timestamp: number) => {
+        const pendingClear = this.draftClearTimers.get(sessionId);
+        if (pendingClear) {
+            clearTimeout(pendingClear);
+            this.draftClearTimers.delete(sessionId);
+        }
+
+        if (draft === null) {
+            this.draftClearTimers.set(sessionId, setTimeout(() => {
+                this.draftClearTimers.delete(sessionId);
+                storage.getState().applySessionDraft(sessionId, null);
+            }, 1500));
+            return;
+        }
+
+        (async () => {
+            const encryption = this.encryption.getSessionEncryption(sessionId);
+            if (!encryption) {
+                return;
+            }
+            const decrypted = await encryption.decryptRaw(draft);
+            if (!decrypted || typeof decrypted.text !== 'string') {
+                return;
+            }
+            storage.getState().applySessionDraft(sessionId, {
+                text: decrypted.text,
+                thinking: decrypted.thinking === true,
+                updatedAt: timestamp,
+            });
+        })().catch(() => {
+            // Drafts are best-effort previews; decryption failures are ignored.
+        });
+    };
 
     //
     // Apply store

@@ -28,9 +28,29 @@ function parseThinkingPayload(payload: unknown): { text: string; streaming: bool
   return { text, streaming };
 }
 
+export type AcpSessionDraft = {
+  text: string;
+  thinking: boolean;
+};
+
+export type AcpSessionManagerOptions = {
+  /**
+   * Called with the current unflushed text block as it streams in (and with
+   * null once the block is flushed into a real envelope). Lets the runner
+   * forward transient typewriter previews without changing what gets
+   * persisted.
+   */
+  onDraft?: (draft: AcpSessionDraft | null) => void;
+};
+
 export class AcpSessionManager {
   private currentTurnId: string | null = null;
   private readonly acpCallToSessionCall = new Map<string, string>();
+  private readonly onDraft?: (draft: AcpSessionDraft | null) => void;
+
+  constructor(options: AcpSessionManagerOptions = {}) {
+    this.onDraft = options.onDraft;
+  }
 
   /** Monotonic clock: max(lastTime + 1, Date.now()) */
   private lastTime = 0;
@@ -38,6 +58,12 @@ export class AcpSessionManager {
   /** Pending text waiting to be flushed when the stream type changes */
   private pendingText = '';
   private pendingType: 'thinking' | 'output' | null = null;
+
+  private emitDraft(): void {
+    if (this.onDraft && this.pendingType) {
+      this.onDraft({ text: this.pendingText, thinking: this.pendingType === 'thinking' });
+    }
+  }
 
   private nextTime(): number {
     this.lastTime = Math.max(this.lastTime + 1, Date.now());
@@ -63,6 +89,7 @@ export class AcpSessionManager {
     const type = this.pendingType;
     this.pendingText = '';
     this.pendingType = null;
+    this.onDraft?.(null);
 
     if (!text) {
       return [];
@@ -112,6 +139,7 @@ export class AcpSessionManager {
         const flushed = this.pendingType !== 'thinking' ? this.flush() : [];
         this.pendingType = 'thinking';
         this.pendingText += text;
+        this.emitDraft();
         return flushed;
       }
 
@@ -139,6 +167,7 @@ export class AcpSessionManager {
       const flushed = this.pendingType !== 'output' ? this.flush() : [];
       this.pendingType = 'output';
       this.pendingText += text;
+      this.emitDraft();
       return flushed;
     }
 

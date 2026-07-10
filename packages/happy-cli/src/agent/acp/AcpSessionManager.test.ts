@@ -7,6 +7,39 @@ function mapMany(mapper: AcpSessionManager, messages: AgentMessage[]) {
   return messages.flatMap((message) => mapper.mapMessage(message));
 }
 
+describe('AcpSessionManager draft previews', () => {
+  it('streams accumulated text as drafts and clears on flush', () => {
+    const drafts: ({ text: string; thinking: boolean } | null)[] = [];
+    const mapper = new AcpSessionManager({ onDraft: (draft) => drafts.push(draft) });
+    mapper.startTurn();
+
+    mapper.mapMessage({ type: 'model-output', textDelta: 'Hel' });
+    mapper.mapMessage({ type: 'model-output', textDelta: 'lo' });
+    expect(drafts).toEqual([
+      { text: 'Hel', thinking: false },
+      { text: 'Hello', thinking: false },
+    ]);
+
+    const ended = mapper.endTurn('completed');
+    expect(ended.some((e) => e.ev.t === 'text')).toBe(true);
+    expect(drafts[drafts.length - 1]).toBeNull();
+  });
+
+  it('marks thinking drafts and clears when switching to output', () => {
+    const drafts: ({ text: string; thinking: boolean } | null)[] = [];
+    const mapper = new AcpSessionManager({ onDraft: (draft) => drafts.push(draft) });
+    mapper.startTurn();
+
+    mapper.mapMessage({ type: 'event', name: 'thinking', payload: { text: 'hmm', streaming: true } });
+    expect(drafts).toEqual([{ text: 'hmm', thinking: true }]);
+
+    // Switching to output flushes the thinking block (draft cleared) and
+    // starts a new output draft.
+    mapper.mapMessage({ type: 'model-output', textDelta: 'answer' });
+    expect(drafts.slice(1)).toEqual([null, { text: 'answer', thinking: false }]);
+  });
+});
+
 describe('AcpSessionManager turn lifecycle', () => {
   it('emits turn-start from startTurn()', () => {
     const mapper = new AcpSessionManager();

@@ -10,6 +10,14 @@ function useDeepEqual<T>(selector: (state: StorageState) => T): (state: StorageS
     };
 }
 import { Session, Machine, GitStatus } from "./storageTypes";
+
+// Transient in-progress agent reply (typewriter preview), streamed via
+// ephemeral message-draft events while the agent composes a text block.
+export interface SessionDraftMessage {
+    text: string;
+    thinking: boolean;
+    updatedAt: number;
+}
 import type { GitStatusFiles } from "./gitStatusFiles";
 import type { ProjectFilesList } from "./projectFiles";
 import { createReducer, reducer, ReducerState } from "./reducer/reducer";
@@ -150,6 +158,9 @@ interface StorageState {
     sessionsData: SessionListItem[] | null;  // Legacy - to be removed
     sessionListViewData: SessionListViewItem[] | null;
     sessionMessages: Record<string, SessionMessages>;
+    // Transient typewriter previews streamed while the agent composes a
+    // reply. Never persisted; cleared when the final message lands.
+    sessionDrafts: Record<string, SessionDraftMessage | undefined>;
     pathGitStatus: Record<string, GitStatus | null>;        // keyed by "machineId:path"
     pathGitStatusFiles: Record<string, GitStatusFiles | null>; // keyed by "machineId:path"
     pathProjectFiles: Record<string, ProjectFilesList | null>;  // keyed by "machineId:path"
@@ -178,6 +189,7 @@ interface StorageState {
     applyLoaded: () => void;
     applyReady: () => void;
     applyMessages: (sessionId: string, messages: NormalizedMessage[]) => { changed: string[], hasReadyEvent: boolean };
+    applySessionDraft: (sessionId: string, draft: SessionDraftMessage | null) => void;
     applyMessagesLoaded: (sessionId: string) => void;
     applyOlderMessagesPagination: (sessionId: string, info: { hasMore: boolean }) => void;
     applyOlderMessagesLoading: (sessionId: string, isLoading: boolean) => void;
@@ -359,6 +371,7 @@ export const storage = create<StorageState>()((set, get) => {
         sessionsData: null,  // Legacy - to be removed
         sessionListViewData: null,
         sessionMessages: {},
+        sessionDrafts: {},
         pathGitStatus: {},
         pathGitStatusFiles: {},
         pathProjectFiles: {},
@@ -610,6 +623,22 @@ export const storage = create<StorageState>()((set, get) => {
             ...state,
             isDataReady: true
         })),
+        applySessionDraft: (sessionId: string, draft: SessionDraftMessage | null) => set((state) => {
+            if (draft === null) {
+                if (!state.sessionDrafts[sessionId]) {
+                    return state;
+                }
+                const { [sessionId]: _, ...rest } = state.sessionDrafts;
+                return { ...state, sessionDrafts: rest };
+            }
+            return {
+                ...state,
+                sessionDrafts: {
+                    ...state.sessionDrafts,
+                    [sessionId]: draft
+                }
+            };
+        }),
         applyMessages: (sessionId: string, messages: NormalizedMessage[]) => {
             let changed = new Set<string>();
             let hasReadyEvent = false;
@@ -695,9 +724,18 @@ export const storage = create<StorageState>()((set, get) => {
                     };
                 }
 
+                // A freshly landed agent message supersedes the transient
+                // typewriter draft for this session.
+                let updatedDrafts = state.sessionDrafts;
+                if (state.sessionDrafts[sessionId] && messages.some((m) => m.role === 'agent')) {
+                    const { [sessionId]: _, ...rest } = state.sessionDrafts;
+                    updatedDrafts = rest;
+                }
+
                 return {
                     ...state,
                     sessions: updatedSessions,
+                    sessionDrafts: updatedDrafts,
                     sessionMessages: {
                         ...state.sessionMessages,
                         [sessionId]: {
@@ -1427,6 +1465,10 @@ export function useSession(id: string): Session | null {
 }
 
 const emptyArray: unknown[] = [];
+
+export function useSessionDraft(sessionId: string): SessionDraftMessage | null {
+    return storage(useShallow((state) => state.sessionDrafts[sessionId] ?? null));
+}
 
 export function useSessionMessages(sessionId: string): {
     messages: Message[],

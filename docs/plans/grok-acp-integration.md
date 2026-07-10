@@ -113,6 +113,10 @@ M0–M3 已按计划完成，全部验收在本地 `pnpm env:up` 环境用真实
 7a. **权限模式/effort 的能力边界（2026-07-10 补充探测）**：grok 0.2.93 在 `agent stdio` 模式下没有任何可用的审批/效率配置面——启动旗标 `--always-approve`/`--permission-mode`/`-m` 全部被忽略（实测权限照发、模型不变）；`session/set_config_option` 未实现（Method not found）；`session/set_mode` 带 high/medium/low **假接受**（回 OK 但跨进程 reload 后 sessionConfig 选中项不变）。结论：reasoning effort 暂无法从 Happy 侧控制（业主决定暂放，等 grok 能力完善）；yolo/acceptEdits 已按 runner 客户端自动应答实现——`acceptEdits` 自动批准 edit 类工具、`bypassPermissions`/yolo 全部自动批准，agent 侧 ACP 模式仍优先（切换成功即清除客户端覆盖），`happy grok`/`happy acp` 启动期接受 `--permission-mode`/`--model`（daemon resume 会传）。三种模式已真实浏览器端到端验证。
 8. **gemini/opencode 回归**：本机未安装这两个 CLI，端到端回归以单测覆盖（kind 优先 + id/name fallback 三家选项集），`happy gemini` 主路径走独立 runGemini backend 不受影响。
 
+9. **后续增强（2026-07-10 业主拍板并实现）**：
+   - **模型真实上下文窗口**：turn-end usage 增加可选 `context_window`（happy-wire + app schema），CLI 从 `availableModels[current]._meta.totalContextTokens` 提取；app 端上下文余量按模型窗口计算（grok 500k），无该注解时回退硬编码 190k（claude 行为不变）。
+   - **打字机流式**：新增易失 `message-draft` 通道（CLI→server→客户端）。AcpSessionManager 把未 flush 的文本块经回调节流（250ms）发出，草稿负载用会话密钥加密（同消息内容），server 只做校验+按会话房间广播、绝不持久化；app 解密后渲染为聊天底部的实时预览气泡，最终消息落库时（或延迟 1.5s 的清除信号）无缝替换。实测 app 端每回合收到 ~29 个草稿更新、页面文本以 300ms 采样粒度平滑增长。历史消息不受影响（草稿永不入库）。
+
 ## 8. 风险
 
 | 风险 | 应对 |
