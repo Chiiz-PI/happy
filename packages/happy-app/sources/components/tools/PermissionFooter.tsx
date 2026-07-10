@@ -30,6 +30,13 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
     
     // Check if this is a Codex session - check both metadata.flavor and tool name prefix
     const isCodex = metadata?.flavor === 'codex' || toolName.startsWith('Codex');
+    // Generic ACP sessions (gemini/grok/opencode/custom acp) answer permission
+    // requests with an explicit decision. Approve-for-session must reach the
+    // agent as decision 'approved_for_session' (mapped to the ACP allow_always
+    // option); Claude-style modes/allowedTools are ignored by the ACP runner.
+    const isAcpDecisionFlavor = metadata?.flavor === 'gemini' || metadata?.flavor === 'grok'
+        || metadata?.flavor === 'opencode' || metadata?.flavor === 'acp';
+    const usesDecisionButtons = isCodex || isAcpDecisionFlavor;
 
     const handleApprove = async () => {
         if (permission.status !== 'pending' || loadingButton !== null || loadingAllEdits || loadingBypass || loadingForSession) return;
@@ -173,9 +180,9 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
     const isApprovedForSession = isApproved && isToolAllowed(toolName, toolInput, permission.allowedTools);
     
     // Codex-specific status detection with fallback
-    const isCodexApproved = isCodex && isApproved && (permission.decision === 'approved' || !permission.decision);
-    const isCodexApprovedForSession = isCodex && isApproved && permission.decision === 'approved_for_session';
-    const isCodexAborted = isCodex && isDenied && permission.decision === 'abort';
+    const isCodexApproved = usesDecisionButtons && isApproved && (permission.decision === 'approved' || !permission.decision);
+    const isCodexApprovedForSession = usesDecisionButtons && isApproved && permission.decision === 'approved_for_session';
+    const isCodexAborted = usesDecisionButtons && isDenied && permission.decision === 'abort';
 
     const styles = StyleSheet.create({
         container: {
@@ -279,8 +286,8 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
         },
     });
 
-    // Render Codex buttons if this is a Codex session
-    if (isCodex) {
+    // Render decision-based buttons for Codex and generic ACP sessions
+    if (usesDecisionButtons) {
         return (
             <View style={styles.container}>
                 <View style={styles.buttonContainer}>
