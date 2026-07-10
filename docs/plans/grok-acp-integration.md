@@ -110,7 +110,7 @@ M0–M3 已按计划完成，全部验收在本地 `pnpm env:up` 环境用真实
 5. **grok 权限管线观察**：grok 会在前一工具权限批准后立刻发起下一工具的权限请求，且**所有待决权限都答复前不执行任何已批准的工具**——UI 上表现为批准后工具卡仍在转圈，属 grok 侧行为，非 runner bug。
 6. **上下文窗口显示**：app 端 `MAX_CONTEXT_SIZE` 硬编码 190000，grok 的 `_meta.totalContextTokens`（500k）暂未消费——"93% left" 指示基于 190k 计算。按计划 §4.3"如现有 UI 支持"处理，留作后续增强。
 7. **模型切换**：`session/set_model` 失败信息已透传为会话内消息（实测 Composer 2.5 切换收到 grok 的 MODEL_SWITCH_INCOMPATIBLE_AGENT 原文）。后续业主拍板：**不兼容模型直接隐藏**——runner 侧按 `availableModels[]._meta.agentType` 与当前模型比对过滤（§4.5 可选项落地为"隐藏"而非"注解"），报错透传保留作兜底。
-7a. **权限模式/effort 的能力边界（2026-07-10 补充探测）**：grok 0.2.93 在 `agent stdio` 模式下没有任何可用的审批/效率配置面——启动旗标 `--always-approve`/`--permission-mode`/`-m` 全部被忽略（实测权限照发、模型不变）；`session/set_config_option` 未实现（Method not found）；`session/set_mode` 带 high/medium/low **假接受**（回 OK 但跨进程 reload 后 sessionConfig 选中项不变）。结论：reasoning effort 暂无法从 Happy 侧控制；yolo/acceptEdits 若要做只能走 runner 客户端自动应答（候选增强，未实现）。
+7a. **权限模式/effort 的能力边界（2026-07-10 补充探测）**：grok 0.2.93 在 `agent stdio` 模式下没有任何可用的审批/效率配置面——启动旗标 `--always-approve`/`--permission-mode`/`-m` 全部被忽略（实测权限照发、模型不变）；`session/set_config_option` 未实现（Method not found）；`session/set_mode` 带 high/medium/low **假接受**（回 OK 但跨进程 reload 后 sessionConfig 选中项不变）。结论：reasoning effort 暂无法从 Happy 侧控制（业主决定暂放，等 grok 能力完善）；yolo/acceptEdits 已按 runner 客户端自动应答实现——`acceptEdits` 自动批准 edit 类工具、`bypassPermissions`/yolo 全部自动批准，agent 侧 ACP 模式仍优先（切换成功即清除客户端覆盖），`happy grok`/`happy acp` 启动期接受 `--permission-mode`/`--model`（daemon resume 会传）。三种模式已真实浏览器端到端验证。
 8. **gemini/opencode 回归**：本机未安装这两个 CLI，端到端回归以单测覆盖（kind 优先 + id/name fallback 三家选项集），`happy gemini` 主路径走独立 runGemini backend 不受影响。
 
 ## 8. 风险
