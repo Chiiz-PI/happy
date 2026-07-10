@@ -108,12 +108,31 @@ export function getOpenClawPermissionModes(translate: Translate): PermissionMode
     ];
 }
 
+// Grok exposes no ACP permission/sandbox modes; its private high/medium/low
+// session config is reasoning effort, not an approval mode, so it must not be
+// surfaced here.
+export function getGrokPermissionModes(translate: Translate): PermissionMode[] {
+    return [
+        { key: 'default', name: translate('agentInput.permissionMode.default'), description: null },
+    ];
+}
+
+export function getGrokModelModes(): ModelMode[] {
+    return [
+        { key: 'default', name: 'default model', description: null },
+        { key: 'grok-4.5', name: 'grok 4.5', description: null },
+    ];
+}
+
 export function getHardcodedPermissionModes(flavor: AgentFlavor, translate: Translate): PermissionMode[] {
     if (flavor === 'codex') {
         return getCodexPermissionModes(translate);
     }
     if (flavor === 'gemini') {
         return getGeminiPermissionModes(translate);
+    }
+    if (flavor === 'grok') {
+        return getGrokPermissionModes(translate);
     }
     if (flavor === 'openclaw') {
         return getOpenClawPermissionModes(translate);
@@ -133,6 +152,9 @@ export function getHardcodedModelModes(flavor: AgentFlavor, _translate: Translat
     }
     if (flavor === 'gemini') {
         return getGeminiModelModes();
+    }
+    if (flavor === 'grok') {
+        return getGrokModelModes();
     }
     if (flavor === 'openclaw') {
         return getOpenClawModelModes();

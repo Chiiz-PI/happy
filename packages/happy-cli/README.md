@@ -33,6 +33,7 @@ This will:
 ```
 happy codex
 happy gemini
+happy grok
 happy openclaw
 
 # or any ACP-compatible CLI
@@ -100,6 +101,7 @@ happy connect status
 | `happy` | Start Claude Code session (default) |
 | `happy codex` | Start Codex mode |
 | `happy gemini` | Start Gemini CLI session |
+| `happy grok` | Start Grok Build CLI session (ACP) |
 | `happy openclaw` | Start OpenClaw session |
 | `happy acp` | Start any ACP-compatible agent |
 | `happy resume <id>` | Resume a previous session |
@@ -145,6 +147,7 @@ yarn workspace happy cli --help
 - For Claude: `claude` CLI installed & logged in
 - For Codex: `codex` CLI installed & logged in
 - For Gemini: `npm install -g @google/gemini-cli` + `happy connect gemini`
+- For Grok: `grok` CLI (xAI Grok Build) installed & logged in
 
 ## License
 

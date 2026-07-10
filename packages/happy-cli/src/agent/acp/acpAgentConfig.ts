@@ -6,6 +6,9 @@ export type AcpAgentConfig = {
 export const KNOWN_ACP_AGENTS: Record<string, AcpAgentConfig> = {
   gemini: { command: 'gemini', args: ['--experimental-acp'] },
   opencode: { command: 'opencode', args: ['acp'] },
+  // Grok Build CLI rejects global flags after the subcommand, so
+  // --no-auto-update must precede `agent stdio`.
+  grok: { command: 'grok', args: ['--no-auto-update', 'agent', 'stdio'] },
 };
 
 export type ResolvedAcpAgentConfig = {

@@ -7,6 +7,7 @@ export interface CLIAvailability {
   claude: boolean;
   codex: boolean;
   gemini: boolean;
+  grok: boolean;
   openclaw: boolean;
   detectedAt: number;
 }
@@ -38,13 +39,17 @@ function detectPosix(): CLIAvailability {
   const codex = commandExists('codex');
   const gemini = commandExists('gemini');
 
+  // Grok: the installer adds ~/.grok/bin to PATH via shell rc files, which
+  // daemon processes may not have sourced — also check the install location.
+  const grok = commandExists('grok') || existsSync(join(os.homedir(), '.grok', 'bin', 'grok'));
+
   // OpenClaw: check command, config file, or env var
   const openclawCommand = commandExists('openclaw');
   const openclawConfig = existsSync(join(os.homedir(), '.openclaw', 'openclaw.json'));
   const openclawEnv = !!process.env.OPENCLAW_GATEWAY_URL;
   const openclaw = openclawCommand || openclawConfig || openclawEnv;
 
-  return { claude, codex, gemini, openclaw, detectedAt: Date.now() };
+  return { claude, codex, gemini, grok, openclaw, detectedAt: Date.now() };
 }
 
 function detectWindows(): CLIAvailability {
@@ -60,6 +65,8 @@ function detectWindows(): CLIAvailability {
   const claude = checkCommand('claude');
   const codex = checkCommand('codex');
   const gemini = checkCommand('gemini');
+  const grok = checkCommand('grok')
+    || existsSync(join(process.env.USERPROFILE || os.homedir(), '.grok', 'bin', 'grok.exe'));
 
   // OpenClaw: check command, config file, or env var
   const openclawCommand = checkCommand('openclaw');
@@ -67,5 +74,5 @@ function detectWindows(): CLIAvailability {
   const openclawEnv = !!process.env.OPENCLAW_GATEWAY_URL;
   const openclaw = openclawCommand || openclawConfig || openclawEnv;
 
-  return { claude, codex, gemini, openclaw, detectedAt: Date.now() };
+  return { claude, codex, gemini, grok, openclaw, detectedAt: Date.now() };
 }

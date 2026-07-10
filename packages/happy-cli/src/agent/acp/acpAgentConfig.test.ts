@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { KNOWN_ACP_AGENTS, resolveAcpAgentConfig } from './acpAgentConfig';
 
 describe('KNOWN_ACP_AGENTS', () => {
-  it('defines built-in Gemini and OpenCode command mappings', () => {
+  it('defines built-in Gemini, OpenCode, and Grok command mappings', () => {
     expect(KNOWN_ACP_AGENTS).toEqual({
       gemini: { command: 'gemini', args: ['--experimental-acp'] },
       opencode: { command: 'opencode', args: ['acp'] },
+      grok: { command: 'grok', args: ['--no-auto-update', 'agent', 'stdio'] },
     });
   });
 });
@@ -16,6 +17,16 @@ describe('resolveAcpAgentConfig', () => {
       agentName: 'gemini',
       command: 'gemini',
       args: ['--experimental-acp'],
+    });
+  });
+
+  it('resolves grok with global flags before the agent stdio subcommand', () => {
+    // Grok 0.2.x rejects `grok agent stdio --no-auto-update`; the global flag
+    // must come first.
+    expect(resolveAcpAgentConfig(['grok'])).toEqual({
+      agentName: 'grok',
+      command: 'grok',
+      args: ['--no-auto-update', 'agent', 'stdio'],
     });
   });
 

@@ -546,6 +546,15 @@ export default function MachineDetailScreen() {
                             }
                         />
                         <Item
+                            title="Grok"
+                            showChevron={false}
+                            rightElement={
+                                <Text style={{ color: metadata.cliAvailability.grok ? '#34C759' : theme.colors.textSecondary, fontSize: 14 }}>
+                                    {metadata.cliAvailability.grok ? t('machine.cliInstalled') : t('machine.cliNotFound')}
+                                </Text>
+                            }
+                        />
+                        <Item
                             title="OpenClaw"
                             showChevron={false}
                             rightElement={

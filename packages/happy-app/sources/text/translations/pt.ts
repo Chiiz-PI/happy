@@ -435,6 +435,7 @@ export const pt: TranslationStructure = {
             claude: 'Claude',
             codex: 'Codex',
             gemini: 'Gemini',
+            grok: 'Grok',
             openclaw: 'OpenClaw',
         },
         model: {

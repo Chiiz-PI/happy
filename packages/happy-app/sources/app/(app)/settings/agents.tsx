@@ -40,6 +40,7 @@ const agentLabels: Record<AgentKey, string> = {
     claude: 'Claude Code',
     codex: 'Codex',
     gemini: 'Gemini',
+    grok: 'Grok',
     openclaw: 'OpenClaw',
 };
 
