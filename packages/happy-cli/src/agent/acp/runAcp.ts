@@ -27,6 +27,7 @@ import {
   extractCurrentModeIdFromPayload,
   extractModeStateFromPayload,
   extractModelStateFromPayload,
+  filterModelsByCurrentAgentType,
   mergeAcpSessionConfigIntoMetadata,
 } from './sessionConfigMetadata';
 import type { SessionConfigOption, SessionModeState, SessionModelState } from '@agentclientprotocol/sdk';
@@ -830,8 +831,15 @@ export async function runAcp(opts: {
     }
 
     if (msg.type === 'event' && msg.name === 'models_update') {
-      const models = extractModelStateFromPayload(msg.payload);
-      if (models) {
+      const rawModels = extractModelStateFromPayload(msg.payload);
+      if (rawModels) {
+        const models = filterModelsByCurrentAgentType(rawModels);
+        if (models.availableModels.length !== rawModels.availableModels.length) {
+          const dropped = rawModels.availableModels
+            .filter((model) => !models.availableModels.some((kept) => kept.modelId === model.modelId))
+            .map((model) => model.modelId);
+          logger.debug(`[${opts.agentName}] Hiding models that require a different agent type: ${dropped.join(', ')}`);
+        }
         legacyModels = models;
         sawModels = true;
         if (verbose) {

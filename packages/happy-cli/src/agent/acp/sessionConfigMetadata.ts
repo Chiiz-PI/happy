@@ -160,6 +160,38 @@ export function extractModelStateFromPayload(payload: unknown): SessionModelStat
   return payload as SessionModelState;
 }
 
+/**
+ * Drop models that cannot be selected in the current session because they
+ * require a different agent type (`_meta.agentType` annotation, e.g. Grok's
+ * grok-composer-2.5-fast requires agent 'cursor' while sessions run
+ * 'grok-build-plan'). Offering them only leads to a guaranteed
+ * session/set_model failure. Models without the annotation are kept, and
+ * nothing is filtered when the current model carries no agent type.
+ */
+export function filterModelsByCurrentAgentType(models: SessionModelState): SessionModelState {
+  const agentTypeOf = (modelId: string): string | null => {
+    const model = models.availableModels.find((m) => m.modelId === modelId);
+    const agentType = model?._meta && isRecord(model._meta) ? model._meta.agentType : null;
+    return typeof agentType === 'string' ? agentType : null;
+  };
+
+  const currentAgentType = agentTypeOf(models.currentModelId);
+  if (!currentAgentType) {
+    return models;
+  }
+
+  const availableModels = models.availableModels.filter((model) => {
+    const agentType = model._meta && isRecord(model._meta) ? model._meta.agentType : null;
+    return typeof agentType !== 'string' || agentType === currentAgentType;
+  });
+
+  if (availableModels.length === models.availableModels.length) {
+    return models;
+  }
+
+  return { ...models, availableModels };
+}
+
 export function extractCurrentModeIdFromPayload(payload: unknown): string | null {
   if (!isRecord(payload)) {
     return null;

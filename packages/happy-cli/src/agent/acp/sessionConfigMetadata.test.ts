@@ -3,6 +3,7 @@ import type { Metadata } from '@/api/types';
 import type { SessionConfigOption } from '@agentclientprotocol/sdk';
 import {
   extractConfigOptionsFromPayload,
+  filterModelsByCurrentAgentType,
   mergeAcpSessionConfigIntoMetadata,
 } from './sessionConfigMetadata';
 
@@ -180,5 +181,47 @@ describe('sessionConfigMetadata', () => {
     expect(extractConfigOptionsFromPayload([option])).toEqual([option]);
     expect(extractConfigOptionsFromPayload({ configOptions: [option] })).toEqual([option]);
     expect(extractConfigOptionsFromPayload({})).toBeNull();
+  });
+});
+
+describe('filterModelsByCurrentAgentType', () => {
+  // Shape captured from Grok Build 0.2.93 session/new (see
+  // docs/research/grok-acp-capability-report.md): the composer model
+  // requires agent 'cursor' and can never be selected in a grok-build
+  // session.
+  const grokModels = {
+    currentModelId: 'grok-4.5',
+    availableModels: [
+      { modelId: 'grok-4.5', name: 'Grok 4.5', _meta: { totalContextTokens: 500000, agentType: 'grok-build-plan' } },
+      { modelId: 'grok-composer-2.5-fast', name: 'Composer 2.5', _meta: { totalContextTokens: 200000, agentType: 'cursor' } },
+    ],
+  };
+
+  it('drops models that require a different agent type', () => {
+    const filtered = filterModelsByCurrentAgentType(grokModels);
+    expect(filtered.availableModels.map((m) => m.modelId)).toEqual(['grok-4.5']);
+    expect(filtered.currentModelId).toBe('grok-4.5');
+  });
+
+  it('keeps models without an agent type annotation', () => {
+    const filtered = filterModelsByCurrentAgentType({
+      currentModelId: 'grok-4.5',
+      availableModels: [
+        { modelId: 'grok-4.5', name: 'Grok 4.5', _meta: { agentType: 'grok-build-plan' } },
+        { modelId: 'unannotated', name: 'Unannotated' },
+      ],
+    });
+    expect(filtered.availableModels.map((m) => m.modelId)).toEqual(['grok-4.5', 'unannotated']);
+  });
+
+  it('filters nothing when the current model has no agent type', () => {
+    const models = {
+      currentModelId: 'plain',
+      availableModels: [
+        { modelId: 'plain', name: 'Plain' },
+        { modelId: 'other', name: 'Other', _meta: { agentType: 'cursor' } },
+      ],
+    };
+    expect(filterModelsByCurrentAgentType(models)).toBe(models);
   });
 });
