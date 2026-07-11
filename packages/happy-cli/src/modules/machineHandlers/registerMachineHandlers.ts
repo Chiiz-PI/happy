@@ -7,9 +7,9 @@
  *     instead of a free-text path field. Deliberately narrower than the
  *     session-scoped file RPCs — no reads or writes, listing only.
  *   - `list-local-sessions`: surface conversations started outside Happy
- *     (plain `claude` / `codex` runs) so the app can resume them via
+ *     (plain `claude` / `codex` / `grok` runs) so the app can resume them via
  *     `spawn-happy-session` with `resumeClaudeSessionId` /
- *     `resumeCodexThreadId`. Discovery is provider-based: each agent that
+ *     `resumeCodexThreadId` / `resumeGrokSessionId`. Discovery is provider-based: each agent that
  *     knows how to enumerate its on-disk store registers a provider via
  *     `registerLocalSessionProvider`; agents without one return an empty
  *     list ("nothing to resume") rather than an error, so the app can ask
@@ -21,7 +21,7 @@ import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
 import { logger } from '@/ui/logger';
-import { listClaudeLocalSessions, listCodexLocalSessions, LocalSessionSummary } from './localSessions';
+import { listClaudeLocalSessions, listCodexLocalSessions, listGrokLocalSessions, LocalSessionSummary } from './localSessions';
 
 export interface MachineListDirectoryRequest {
     /** Absolute path to list; relative paths resolve against home. Defaults to home. */
@@ -62,6 +62,7 @@ export type LocalSessionProvider = () => Promise<LocalSessionSummary[]>;
 const localSessionProviders = new Map<string, LocalSessionProvider>([
     ['claude', () => listClaudeLocalSessions()],
     ['codex', () => listCodexLocalSessions()],
+    ['grok', () => listGrokLocalSessions()],
 ]);
 
 /**

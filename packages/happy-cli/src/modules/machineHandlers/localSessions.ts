@@ -1,19 +1,22 @@
 /**
  * Discovers agent conversations stored on the local machine by Claude Code
- * (`~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`) and Codex
- * (`~/.codex/sessions/YYYY/MM/DD/rollout-<timestamp>-<uuid>.jsonl`).
+ * (`~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`), Codex
+ * (`~/.codex/sessions/YYYY/MM/DD/rollout-<timestamp>-<uuid>.jsonl`) and
+ * Grok (`~/.grok/sessions/<url-encoded-cwd>/<uuid>/` directories holding
+ * `summary.json` + `chat_history.jsonl`).
  *
  * Backs the machine-level RPCs that let the app offer "resume an existing
  * conversation" when creating a new Happy session. Scanning is bounded:
  * only the most recently modified files are parsed, and only the head of
  * each file is read — enough to recover the working directory and the
  * first real user prompt for display. The returned id feeds straight into
- * `spawn-happy-session` as `resumeClaudeSessionId` / `resumeCodexThreadId`.
+ * `spawn-happy-session` as `resumeClaudeSessionId` / `resumeCodexThreadId`
+ * / `resumeGrokSessionId`.
  */
 
-import { open, readdir, stat } from 'node:fs/promises';
+import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export interface LocalSessionSummary {
     /** Claude session UUID or Codex thread id — feed to the matching resume option on spawn. */
@@ -41,6 +44,13 @@ export function defaultCodexSessionsDir(): string {
         ? process.env.CODEX_HOME.replace(/^~(?=$|\/|\\)/, homedir())
         : join(homedir(), '.codex');
     return join(codexHome, 'sessions');
+}
+
+export function defaultGrokSessionsDir(): string {
+    const grokHome = process.env.GROK_HOME
+        ? process.env.GROK_HOME.replace(/^~(?=$|\/|\\)/, homedir())
+        : join(homedir(), '.grok');
+    return join(grokHome, 'sessions');
 }
 
 /**
@@ -237,6 +247,97 @@ export async function listCodexLocalSessions(sessionsDir?: string, limit: number
             }
         } catch {
             // Unreadable file — skip it rather than failing the whole listing
+        }
+    }
+    return sessions;
+}
+
+/**
+ * Parse one Grok session directory: `summary.json` carries the session id
+ * and cwd (`info`), plus a generated title once one exists. The displayed
+ * summary prefers the first real user prompt from `chat_history.jsonl`,
+ * where prompts are wrapped in `<user_query>` tags amid injected context
+ * messages (user_info, system reminders).
+ */
+async function parseGrokSession(sessionDir: string): Promise<{ id: string; directory: string; summary: string } | null> {
+    let meta: any;
+    try {
+        meta = JSON.parse(await readFile(join(sessionDir, 'summary.json'), 'utf8'));
+    } catch {
+        return null;
+    }
+    const id = typeof meta?.info?.id === 'string' ? meta.info.id : null;
+    const directory = typeof meta?.info?.cwd === 'string' ? meta.info.cwd : null;
+    if (!id || !directory) return null;
+
+    let prompt: string | null = null;
+    try {
+        const lines = await readHeadLines(join(sessionDir, 'chat_history.jsonl'), HEAD_BYTES);
+        outer: for (const line of lines) {
+            const parsed = parseJsonLine(line);
+            if (parsed?.type !== 'user' || !Array.isArray(parsed.content)) continue;
+            for (const part of parsed.content) {
+                if (part?.type !== 'text' || typeof part.text !== 'string') continue;
+                const match = part.text.match(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/);
+                if (match) {
+                    prompt = match[1];
+                    break outer;
+                }
+            }
+        }
+    } catch {
+        // Missing or unreadable history — fall back to the generated title
+    }
+
+    const title = typeof meta.generated_title === 'string' ? meta.generated_title
+        : typeof meta.session_summary === 'string' ? meta.session_summary : null;
+    const summary = prompt ?? title;
+    // A session with neither a prompt nor a title has nothing worth resuming
+    if (!summary) return null;
+    return { id, directory, summary: toSingleLineSummary(summary) };
+}
+
+/**
+ * List local Grok sessions, most recently modified first. Activity is
+ * tracked via `summary.json` mtime — Grok rewrites it on every turn.
+ */
+export async function listGrokLocalSessions(sessionsDir?: string, limit: number = DEFAULT_LIMIT): Promise<LocalSessionSummary[]> {
+    const root = sessionsDir ?? defaultGrokSessionsDir();
+
+    let cwdDirs: string[];
+    try {
+        cwdDirs = await readdir(root);
+    } catch {
+        return [];
+    }
+
+    const candidates: SessionFileCandidate[] = [];
+    for (const cwdDir of cwdDirs) {
+        let entries: string[];
+        try {
+            entries = await readdir(join(root, cwdDir));
+        } catch {
+            continue; // stray file at the root (e.g. session_search.sqlite)
+        }
+        // stat on <entry>/summary.json filters out non-session entries like
+        // the per-cwd prompt_history.jsonl in one step
+        const stated = await Promise.all(entries.map((name) => statCandidate(join(root, cwdDir, name, 'summary.json'), name)));
+        for (const candidate of stated) {
+            if (candidate) candidates.push(candidate);
+        }
+    }
+    candidates.sort((a, b) => b.mtime - a.mtime);
+
+    const sessions: LocalSessionSummary[] = [];
+    for (const candidate of candidates) {
+        if (sessions.length >= limit) break;
+        try {
+            const parsed = await parseGrokSession(dirname(candidate.path));
+            if (parsed) {
+                sessions.push({ updatedAt: candidate.mtime, ...parsed });
+            }
+        } catch {
+            // Unreadable session — skip it rather than failing the whole listing
         }
     }
     return sessions;

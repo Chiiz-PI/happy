@@ -94,9 +94,10 @@ type PickerItem = { key: string; label: string; subtitle?: string; dimmed?: bool
 // mapped to the spawn-happy-session option carrying the resume id.
 // Discovery itself is agent-generic (list-local-sessions RPC); an agent
 // joins this map once the daemon grows a resume path for it.
-const RESUME_SPAWN_FIELD: Partial<Record<AgentKey, 'resumeClaudeSessionId' | 'resumeCodexThreadId'>> = {
+const RESUME_SPAWN_FIELD: Partial<Record<AgentKey, 'resumeClaudeSessionId' | 'resumeCodexThreadId' | 'resumeGrokSessionId'>> = {
     claude: 'resumeClaudeSessionId',
     codex: 'resumeCodexThreadId',
+    grok: 'resumeGrokSessionId',
 };
 
 type PickerType = 'machine' | 'path' | 'worktree' | 'agent' | 'model' | 'effort' | 'permission' | 'resume';
@@ -1204,6 +1205,7 @@ function NewSessionScreen() {
                 effortLevel: currentEffort?.key,
                 resumeClaudeSessionId: resumeSession && selectedAgent === 'claude' ? resumeSession.id : undefined,
                 resumeCodexThreadId: resumeSession && selectedAgent === 'codex' ? resumeSession.id : undefined,
+                resumeGrokSessionId: resumeSession && selectedAgent === 'grok' ? resumeSession.id : undefined,
             });
 
             switch (result.type) {

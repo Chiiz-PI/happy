@@ -3,7 +3,7 @@ import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
-import { listClaudeLocalSessions, listCodexLocalSessions } from './localSessions';
+import { listClaudeLocalSessions, listCodexLocalSessions, listGrokLocalSessions } from './localSessions';
 
 describe('localSessions', () => {
     let root: string;
@@ -156,6 +156,85 @@ describe('localSessions', () => {
 
         it('returns empty list when the sessions dir does not exist', async () => {
             const sessions = await listCodexLocalSessions(join(root, 'missing'));
+            expect(sessions).toEqual([]);
+        });
+    });
+
+    describe('listGrokLocalSessions', () => {
+        const grokSessionId = '019f4c83-12ac-7ad1-ab39-01b7ba337716';
+
+        async function writeGrokSession(cwd: string, id: string, options: {
+            summary?: object;
+            history?: object[];
+        } = {}): Promise<void> {
+            const dir = join(root, encodeURIComponent(cwd), id);
+            await mkdir(dir, { recursive: true });
+            const summary = options.summary ?? { info: { id, cwd } };
+            await writeFile(join(dir, 'summary.json'), JSON.stringify(summary), 'utf-8');
+            if (options.history) {
+                await writeFile(join(dir, 'chat_history.jsonl'), jsonl(options.history), 'utf-8');
+            }
+        }
+
+        it('returns id, cwd and the first user_query prompt', async () => {
+            await writeGrokSession('/home/user/project', grokSessionId, {
+                history: [
+                    { type: 'system', content: 'You are Grok…' },
+                    { type: 'user', content: [{ type: 'text', text: '<user_info>\nOS Version: linux\n</user_info>' }] },
+                    { type: 'user', content: [{ type: 'text', text: '<system-reminder>\nskills…\n</system-reminder>' }] },
+                    { type: 'user', content: [{ type: 'text', text: '<user_query>\nfix the login bug\n</user_query>' }] },
+                    { type: 'assistant', content: 'On it.' },
+                ],
+            });
+
+            const sessions = await listGrokLocalSessions(root);
+            expect(sessions).toHaveLength(1);
+            expect(sessions[0].id).toBe(grokSessionId);
+            expect(sessions[0].directory).toBe('/home/user/project');
+            expect(sessions[0].summary).toBe('fix the login bug');
+            expect(sessions[0].updatedAt).toBeGreaterThan(0);
+        });
+
+        it('falls back to the generated title when history has no user_query', async () => {
+            await writeGrokSession('/home/user/project', grokSessionId, {
+                summary: { info: { id: grokSessionId, cwd: '/home/user/project' }, generated_title: 'Login Bug Investigation' },
+                history: [
+                    { type: 'system', content: 'You are Grok…' },
+                ],
+            });
+
+            const sessions = await listGrokLocalSessions(root);
+            expect(sessions).toHaveLength(1);
+            expect(sessions[0].summary).toBe('Login Bug Investigation');
+        });
+
+        it('skips sessions with neither a prompt nor a title, and non-session files', async () => {
+            await writeGrokSession('/home/user/project', grokSessionId);
+            // Stray files that live alongside session dirs in a real store
+            await writeFile(join(root, 'session_search.sqlite'), '', 'utf-8');
+            await writeFile(join(root, encodeURIComponent('/home/user/project'), 'prompt_history.jsonl'), '{}\n', 'utf-8');
+
+            const sessions = await listGrokLocalSessions(root);
+            expect(sessions).toHaveLength(0);
+        });
+
+        it('sorts by summary.json mtime descending and respects the limit', async () => {
+            const older = '019f0000-0000-7000-8000-000000000001';
+            const newer = '019f0000-0000-7000-8000-000000000002';
+            const history = (text: string) => [{ type: 'user', content: [{ type: 'text', text: `<user_query>\n${text}\n</user_query>` }] }];
+            await writeGrokSession('/p1', older, { history: history('older') });
+            await new Promise((r) => setTimeout(r, 20));
+            await writeGrokSession('/p2', newer, { history: history('newer') });
+
+            const sessions = await listGrokLocalSessions(root);
+            expect(sessions.map((s) => s.id)).toEqual([newer, older]);
+
+            const limited = await listGrokLocalSessions(root, 1);
+            expect(limited.map((s) => s.id)).toEqual([newer]);
+        });
+
+        it('returns empty list when the sessions dir does not exist', async () => {
+            const sessions = await listGrokLocalSessions(join(root, 'missing'));
             expect(sessions).toEqual([]);
         });
     });

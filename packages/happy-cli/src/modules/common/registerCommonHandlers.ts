@@ -139,6 +139,11 @@ export interface SpawnSessionOptions {
      * session attaches to a forked Codex app-server thread.
      */
     resumeCodexThreadId?: string;
+    /**
+     * If set, the daemon spawns Grok with `--resume <id>` so a fresh Happy
+     * session continues an existing Grok conversation via ACP session/load.
+     */
+    resumeGrokSessionId?: string;
     /** Happy session id this fork was branched from (lineage). */
     parentSessionId?: string;
     /** Happy message id used as the rewind point (only set for "duplicate"). */
