@@ -36,7 +36,15 @@ import { useAllMachines, useLocalSetting, useSessions, useSetting, storage } fro
 import type { NewSessionAgentType } from '@/sync/persistence';
 import { sync } from '@/sync/sync';
 import { isMachineOnline } from '@/utils/machineUtils';
-import { machineSpawnNewSession, sessionSetAgentModes, type SessionAgentModesPatch } from '@/sync/ops';
+import {
+    machineSpawnNewSession,
+    machineListDirectory,
+    machineListLocalSessions,
+    sessionSetAgentModes,
+    type SessionAgentModesPatch,
+    type MachineDirectoryEntry,
+    type LocalAgentSession,
+} from '@/sync/ops';
 import { createWorktree, listWorktrees } from '@/utils/worktree';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { formatPathRelativeToHome, formatLastSeen } from '@/utils/sessionUtils';
@@ -80,7 +88,7 @@ const ALL_AGENTS: { key: AgentKey; label: string }[] = [
 
 type PickerItem = { key: string; label: string; subtitle?: string; dimmed?: boolean };
 
-type PickerType = 'machine' | 'path' | 'worktree' | 'agent' | 'model' | 'effort' | 'permission';
+type PickerType = 'machine' | 'path' | 'worktree' | 'agent' | 'model' | 'effort' | 'permission' | 'resume';
 
 type PermissionStyle = { color: string; icon: 'play-forward' | 'pause' };
 
@@ -335,6 +343,8 @@ function PathPickerContent({
     items,
     value,
     homeDir,
+    machineId,
+    browseEnabled,
     onChangeValue,
     onDone,
     embedded = false,
@@ -343,6 +353,8 @@ function PathPickerContent({
     items: PickerItem[];
     value: string | null;
     homeDir?: string;
+    machineId?: string | null;
+    browseEnabled?: boolean;
     onChangeValue: (value: string) => void;
     onDone?: () => void;
     embedded?: boolean;
@@ -351,6 +363,64 @@ function PathPickerContent({
     const inputRef = React.useRef<TextInput>(null);
     const currentValue = value ?? '';
     const [selection, setSelection] = React.useState<{ start: number; end: number } | undefined>(undefined);
+
+    // Remote directory browser (machine-list-directory RPC, home-scoped).
+    // `browsePath === undefined` means "the machine's home directory".
+    // Navigating a folder both descends into it and writes it into the
+    // path input, so browsing IS selecting.
+    const [browsePath, setBrowsePath] = React.useState<string | undefined>(() => {
+        const trimmed = trimPathInput(value);
+        if (!trimmed) return undefined;
+        const abs = resolveAbsolutePath(trimmed, homeDir);
+        return abs.startsWith('/') || /^[A-Za-z]:[\\/]/.test(abs) ? abs : undefined;
+    });
+    const [browseResolvedPath, setBrowseResolvedPath] = React.useState<string | null>(null);
+    const [browseHomeDir, setBrowseHomeDir] = React.useState<string | undefined>(homeDir);
+    const [browseEntries, setBrowseEntries] = React.useState<MachineDirectoryEntry[] | null>(null);
+    const [browseLoading, setBrowseLoading] = React.useState(false);
+
+    React.useEffect(() => {
+        if (!browseEnabled || !machineId) return;
+        let cancelled = false;
+        setBrowseLoading(true);
+        machineListDirectory(machineId, browsePath).then((result) => {
+            if (cancelled) return;
+            setBrowseLoading(false);
+            if (result.success && result.entries && result.path) {
+                setBrowseResolvedPath(result.path);
+                setBrowseHomeDir(result.homeDir ?? homeDir);
+                setBrowseEntries(result.entries.filter((entry) => entry.type === 'directory' && !entry.name.startsWith('.')));
+            } else if (browsePath !== undefined) {
+                // The requested folder is missing or outside home — fall back to home
+                setBrowsePath(undefined);
+            } else {
+                setBrowseEntries(null);
+            }
+        });
+        return () => { cancelled = true; };
+    }, [browseEnabled, machineId, browsePath, homeDir]);
+
+    const browseSep = browseResolvedPath?.includes('\\') ? '\\' : '/';
+    const browseIsAtHome = !browseResolvedPath
+        || !browseHomeDir
+        || trimTrailingPathSeparator(browseResolvedPath) === trimTrailingPathSeparator(browseHomeDir);
+
+    const handleBrowseInto = React.useCallback((entryName: string) => {
+        if (!browseResolvedPath) return;
+        const next = trimTrailingPathSeparator(browseResolvedPath) + browseSep + entryName;
+        setBrowsePath(next);
+        onChangeValue(formatPathRelativeToHome(next, browseHomeDir));
+    }, [browseResolvedPath, browseSep, browseHomeDir, onChangeValue]);
+
+    const handleBrowseUp = React.useCallback(() => {
+        if (!browseResolvedPath || browseIsAtHome) return;
+        const trimmed = trimTrailingPathSeparator(browseResolvedPath);
+        const idx = trimmed.lastIndexOf(browseSep);
+        if (idx <= 0) return;
+        const parent = trimmed.slice(0, idx);
+        setBrowsePath(parent);
+        onChangeValue(formatPathRelativeToHome(parent, browseHomeDir));
+    }, [browseResolvedPath, browseIsAtHome, browseSep, browseHomeDir, onChangeValue]);
 
     React.useEffect(() => {
         const timeout = setTimeout(() => {
@@ -467,15 +537,15 @@ function PathPickerContent({
                 </Text>
             )}
 
-            <Text style={[pickerStyles.sectionLabel, { color: theme.colors.textSecondary }]}>
-                Recent
-            </Text>
-
             <ScrollView
                 style={[pickerStyles.optionList, embedded && pickerStyles.embeddedOptionList]}
                 contentContainerStyle={embedded && pickerStyles.embeddedOptionListContent}
                 keyboardShouldPersistTaps="handled"
             >
+                <Text style={[pickerStyles.sectionLabel, { color: theme.colors.textSecondary }]}>
+                    Recent
+                </Text>
+
                 {items.map((item) => {
                     const isSelected = item.key === matchedItemKey;
 
@@ -514,6 +584,67 @@ function PathPickerContent({
                     <Text style={[pickerStyles.emptyText, { color: theme.colors.textSecondary }]}>
                         no recent projects yet
                     </Text>
+                )}
+
+                {browseEnabled && machineId && (
+                    <>
+                        <View style={pickerStyles.browseHeaderRow}>
+                            <Text style={[pickerStyles.sectionLabel, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                                Browse · {browseResolvedPath ? formatPathRelativeToHome(browseResolvedPath, browseHomeDir) : '~'}
+                            </Text>
+                            {browseLoading && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
+                        </View>
+
+                        {!browseIsAtHome && (
+                            <Pressable
+                                style={(p) => [
+                                    pickerStyles.option,
+                                    embedded && pickerStyles.embeddedOption,
+                                    p.pressed && pickerStyles.optionPressed,
+                                ]}
+                                onPress={handleBrowseUp}
+                            >
+                                <Ionicons name="arrow-up-outline" size={16} color={theme.colors.textSecondary} />
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text style={[pickerStyles.optionText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                                        ..
+                                    </Text>
+                                </View>
+                            </Pressable>
+                        )}
+
+                        {browseEntries?.map((entry) => (
+                            <Pressable
+                                key={entry.name}
+                                style={(p) => [
+                                    pickerStyles.option,
+                                    embedded && pickerStyles.embeddedOption,
+                                    p.pressed && pickerStyles.optionPressed,
+                                ]}
+                                onPress={() => handleBrowseInto(entry.name)}
+                            >
+                                <Ionicons
+                                    name={entry.isGitRepo ? 'folder' : 'folder-outline'}
+                                    size={16}
+                                    color={entry.isGitRepo ? theme.colors.button.primary.background : theme.colors.textSecondary}
+                                />
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text style={[pickerStyles.optionText, { color: theme.colors.text }]} numberOfLines={1}>
+                                        {entry.name}
+                                    </Text>
+                                </View>
+                                {entry.isGitRepo && (
+                                    <Octicons name="git-branch" size={14} color={theme.colors.textSecondary} />
+                                )}
+                            </Pressable>
+                        ))}
+
+                        {browseEntries !== null && browseEntries.length === 0 && !browseLoading && (
+                            <Text style={[pickerStyles.emptyText, { color: theme.colors.textSecondary }]}>
+                                no subfolders
+                            </Text>
+                        )}
+                    </>
                 )}
             </ScrollView>
         </View>
@@ -730,6 +861,61 @@ function NewSessionScreen() {
         }
     }, [worktreeItems, worktreeKey]);
 
+    // Local Claude Code / Codex conversations discovered on the machine
+    // (started outside Happy) — lets the user attach the new session to an
+    // existing conversation instead of starting fresh.
+    const [localSessions, setLocalSessions] = React.useState<LocalAgentSession[]>([]);
+    const [resumeSession, setResumeSession] = React.useState<LocalAgentSession | null>(null);
+    const machineOnline = selectedMachine ? isMachineOnline(selectedMachine) : false;
+
+    React.useEffect(() => {
+        setResumeSession(null);
+        setLocalSessions([]);
+        if (!selectedMachineId || !machineOnline) return;
+        if (selectedAgent !== 'claude' && selectedAgent !== 'codex') return;
+        let cancelled = false;
+        machineListLocalSessions(selectedMachineId, selectedAgent).then((result) => {
+            if (cancelled) return;
+            if (result.success && result.sessions) {
+                setLocalSessions(result.sessions);
+            }
+        });
+        return () => { cancelled = true; };
+    }, [selectedMachineId, selectedAgent, machineOnline]);
+
+    // Conversations already attached to a Happy session are not offered —
+    // they are resumable from the session list instead.
+    const knownAgentSessionIds = React.useMemo(() => {
+        const ids = new Set<string>();
+        if (!sessions) return ids;
+        for (const s of sessions) {
+            if (typeof s === 'string') continue;
+            const session = s as Session;
+            if (session.metadata?.claudeSessionId) ids.add(session.metadata.claudeSessionId);
+            if (session.metadata?.codexThreadId) ids.add(session.metadata.codexThreadId);
+        }
+        return ids;
+    }, [sessions]);
+
+    const resumeItems = React.useMemo<PickerItem[]>(() => localSessions
+        .filter((s) => !knownAgentSessionIds.has(s.id))
+        .map((s) => ({
+            key: s.id,
+            label: s.summary || s.id,
+            subtitle: `${formatPathRelativeToHome(s.directory, selectedHomeDir)} · ${formatLastSeen(s.updatedAt, false)}`,
+        })), [localSessions, knownAgentSessionIds, selectedHomeDir]);
+
+    // Resuming is bound to the conversation's original working directory —
+    // if the user picks a different path afterwards, drop the selection.
+    React.useEffect(() => {
+        if (!resumeSession) return;
+        const current = normalizePathForComparison(selectedPath, selectedHomeDir);
+        const target = normalizePathForComparison(resumeSession.directory, selectedHomeDir);
+        if (current !== target) {
+            setResumeSession(null);
+        }
+    }, [selectedPath, selectedHomeDir, resumeSession]);
+
     // Filter available agents based on CLI availability from machine metadata
     const availableAgents = React.useMemo(() => {
         const availability = selectedMachine?.metadata?.cliAvailability;
@@ -867,6 +1053,8 @@ function NewSessionScreen() {
                 return { title: 'Effort', items: getModePickerItems(effortLevels), selectedKey: currentEffort?.key ?? null, searchPlaceholder: 'search efforts...' };
             case 'permission':
                 return { title: 'Permissions', items: getModePickerItems(permissionModes), selectedKey: currentPermission?.key ?? null, searchPlaceholder: 'search permissions...' };
+            case 'resume':
+                return { title: 'Conversation', fixedItems: RESUME_FIXED_ITEMS, items: resumeItems, selectedKey: resumeSession?.id ?? '__none__', searchPlaceholder: 'search conversations...' };
             default:
                 return null;
         }
@@ -880,6 +1068,8 @@ function NewSessionScreen() {
         machineItems,
         modelModes,
         permissionModes,
+        resumeItems,
+        resumeSession?.id,
         selectedAgent,
         selectedMachineId,
         worktreeKey,
@@ -923,6 +1113,19 @@ function NewSessionScreen() {
                 }
                 break;
             }
+            case 'resume': {
+                if (key === '__none__') {
+                    setResumeSession(null);
+                } else {
+                    const session = localSessions.find((s) => s.id === key);
+                    if (session) {
+                        setResumeSession(session);
+                        setSelectedPath(formatPathRelativeToHome(session.directory, selectedHomeDir));
+                        setWorktreeKey('__none__');
+                    }
+                }
+                break;
+            }
         }
         setActivePicker(null);
     }, [
@@ -932,10 +1135,13 @@ function NewSessionScreen() {
         draft.setModelMode,
         draft.setPermissionMode,
         effortLevels,
+        localSessions,
         modelModes,
         permissionModes,
+        selectedHomeDir,
         setSelectedAgent,
         setSelectedMachineId,
+        setSelectedPath,
         setWorktreeKey,
     ]);
 
@@ -957,7 +1163,12 @@ function NewSessionScreen() {
 
             // Handle worktree selection
             let spawnDirectory = absolutePath;
-            if (worktreeKey === '__new__') {
+            if (resumeSession) {
+                // Resuming an on-disk conversation — it must spawn in the
+                // conversation's original working directory (claude --resume
+                // looks the JSONL up via the cwd-derived project dir)
+                spawnDirectory = resumeSession.directory;
+            } else if (worktreeKey === '__new__') {
                 const worktreeResult = await createWorktree(selectedMachineId, absolutePath);
                 if (!worktreeResult.success) {
                     Modal.alert(t('common.error'), worktreeResult.error || 'Failed to create worktree');
@@ -980,6 +1191,8 @@ function NewSessionScreen() {
                 permissionMode: selectedAgent === 'codex' || currentPermission.key !== 'default' ? currentPermission.key : undefined,
                 modelMode: currentModelKey !== 'default' ? currentModelKey : undefined,
                 effortLevel: currentEffort?.key,
+                resumeClaudeSessionId: resumeSession && selectedAgent === 'claude' ? resumeSession.id : undefined,
+                resumeCodexThreadId: resumeSession && selectedAgent === 'codex' ? resumeSession.id : undefined,
             });
 
             switch (result.type) {
@@ -1021,6 +1234,7 @@ function NewSessionScreen() {
                         await sync.sendMessage(result.sessionId, trimmedPrompt, { source: 'new_session' });
                     }
 
+                    setResumeSession(null);
                     router.back();
                     navigateToSession(result.sessionId);
                     break;
@@ -1047,7 +1261,7 @@ function NewSessionScreen() {
         } finally {
             setIsSpawning(false);
         }
-    }, [selectedMachineId, selectedMachine, selectedPath, selectedAgent, router, navigateToSession, currentPermission.key, currentModelKey, currentEffort?.key, effectiveAgentDefaults.permissionMode, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.effortLevel, worktreeKey]);
+    }, [selectedMachineId, selectedMachine, selectedPath, selectedAgent, router, navigateToSession, currentPermission.key, currentModelKey, currentEffort?.key, effectiveAgentDefaults.permissionMode, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.effortLevel, worktreeKey, resumeSession]);
 
     const canSend = selectedMachineId && selectedMachine && isMachineOnline(selectedMachine) && !isSpawning;
     const sidebarLayout = getNewSessionSidebarLayout({
@@ -1100,6 +1314,8 @@ function NewSessionScreen() {
                         items={pathItems}
                         value={selectedPath}
                         homeDir={selectedHomeDir}
+                        machineId={selectedMachineId}
+                        browseEnabled={!isOffline}
                         onChangeValue={setSelectedPath}
                         onDone={() => setActivePicker(null)}
                         embedded={sidebarLayout.showSidebar}
@@ -1232,6 +1448,20 @@ function NewSessionScreen() {
                             {renderActivePickerPopover('agent')}
                             {renderActivePickerPopover('model')}
                             {renderActivePickerPopover('effort')}
+
+                            {(resumeItems.length > 0 || resumeSession) && (
+                                <Pressable
+                                    style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
+                                    onPress={() => togglePicker('resume')}
+                                >
+                                    <Ionicons name="time-outline" size={15} color={theme.colors.textSecondary} />
+                                    <Text style={[styles.configLabel, styles.configValueText]} numberOfLines={1}>
+                                        {resumeSession ? (resumeSession.summary || resumeSession.id) : 'new conversation'}
+                                    </Text>
+                                    <Ionicons name="chevron-down" size={13} color={theme.colors.textSecondary} />
+                                </Pressable>
+                            )}
+                            {renderActivePickerPopover('resume')}
 
                             {showPermission && (
                                 <Pressable
@@ -1478,6 +1708,8 @@ function NewSessionScreen() {
                             items={pathItems}
                             value={selectedPath}
                             homeDir={selectedHomeDir}
+                            machineId={selectedMachineId}
+                            browseEnabled={!isOffline}
                             onChangeValue={setSelectedPath}
                             onDone={() => setActivePicker(null)}
                         />
@@ -1493,6 +1725,10 @@ function NewSessionScreen() {
 const WORKTREE_FIXED_ITEMS: PickerItem[] = [
     { key: '__none__', label: 'no worktree' },
     { key: '__new__', label: 'new worktree' },
+];
+
+const RESUME_FIXED_ITEMS: PickerItem[] = [
+    { key: '__none__', label: 'new conversation' },
 ];
 
 const styles = StyleSheet.create((theme) => ({
@@ -1954,6 +2190,13 @@ const pickerStyles = {
         ...Typography.default('semiBold'),
         ...Platform.select({ web: { userSelect: 'none' } as any, default: {} }),
     } as const,
+    browseHeaderRow: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        justifyContent: 'space-between' as const,
+        gap: 8,
+        marginTop: 12,
+    },
     option: {
         flexDirection: 'row' as const,
         alignItems: 'center' as const,
