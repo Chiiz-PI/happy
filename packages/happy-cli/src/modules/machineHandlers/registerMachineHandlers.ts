@@ -6,10 +6,14 @@
  *     user's home directory, so the app can offer a directory picker
  *     instead of a free-text path field. Deliberately narrower than the
  *     session-scoped file RPCs — no reads or writes, listing only.
- *   - `claude-list-local-sessions` / `codex-list-local-sessions`: surface
- *     conversations started outside Happy (plain `claude` / `codex` runs)
- *     so the app can resume them via `spawn-happy-session` with
- *     `resumeClaudeSessionId` / `resumeCodexThreadId`.
+ *   - `list-local-sessions`: surface conversations started outside Happy
+ *     (plain `claude` / `codex` runs) so the app can resume them via
+ *     `spawn-happy-session` with `resumeClaudeSessionId` /
+ *     `resumeCodexThreadId`. Discovery is provider-based: each agent that
+ *     knows how to enumerate its on-disk store registers a provider via
+ *     `registerLocalSessionProvider`; agents without one return an empty
+ *     list ("nothing to resume") rather than an error, so the app can ask
+ *     for any agent uniformly.
  */
 
 import { readdir, stat } from 'node:fs/promises';
@@ -41,10 +45,36 @@ export interface MachineListDirectoryResponse {
     error?: string;
 }
 
+export interface ListLocalSessionsRequest {
+    /** Agent whose local conversation store to enumerate, e.g. 'claude'. */
+    agent: string;
+}
+
 export interface ListLocalSessionsResponse {
     success: boolean;
     sessions?: LocalSessionSummary[];
     error?: string;
+}
+
+/** Enumerates an agent's on-disk conversations, most recent first. */
+export type LocalSessionProvider = () => Promise<LocalSessionSummary[]>;
+
+const localSessionProviders = new Map<string, LocalSessionProvider>([
+    ['claude', () => listClaudeLocalSessions()],
+    ['codex', () => listCodexLocalSessions()],
+]);
+
+/**
+ * Register a discovery provider for an additional agent (e.g. an ACP agent
+ * whose store location is only known to its integration module). Replaces
+ * any existing provider for the same agent.
+ */
+export function registerLocalSessionProvider(agent: string, provider: LocalSessionProvider): void {
+    localSessionProviders.set(agent, provider);
+}
+
+export function unregisterLocalSessionProvider(agent: string): void {
+    localSessionProviders.delete(agent);
 }
 
 export function registerMachineHandlers(rpcHandlerManager: RpcHandlerManager): void {
@@ -88,21 +118,20 @@ export function registerMachineHandlers(rpcHandlerManager: RpcHandlerManager): v
         }
     });
 
-    rpcHandlerManager.registerHandler<void, ListLocalSessionsResponse>('claude-list-local-sessions', async () => {
-        try {
-            return { success: true, sessions: await listClaudeLocalSessions() };
-        } catch (error) {
-            logger.debug('[MACHINE HANDLERS] Failed to list local Claude sessions:', error);
-            return { success: false, error: error instanceof Error ? error.message : 'Failed to list local Claude sessions' };
+    rpcHandlerManager.registerHandler<ListLocalSessionsRequest, ListLocalSessionsResponse>('list-local-sessions', async (data) => {
+        if (typeof data?.agent !== 'string' || data.agent.length === 0) {
+            return { success: false, error: 'agent is required' };
         }
-    });
-
-    rpcHandlerManager.registerHandler<void, ListLocalSessionsResponse>('codex-list-local-sessions', async () => {
+        const provider = localSessionProviders.get(data.agent);
+        if (!provider) {
+            // No discovery for this agent — nothing to resume, not an error
+            return { success: true, sessions: [] };
+        }
         try {
-            return { success: true, sessions: await listCodexLocalSessions() };
+            return { success: true, sessions: await provider() };
         } catch (error) {
-            logger.debug('[MACHINE HANDLERS] Failed to list local Codex sessions:', error);
-            return { success: false, error: error instanceof Error ? error.message : 'Failed to list local Codex sessions' };
+            logger.debug(`[MACHINE HANDLERS] Failed to list local ${data.agent} sessions:`, error);
+            return { success: false, error: error instanceof Error ? error.message : `Failed to list local ${data.agent} sessions` };
         }
     });
 }

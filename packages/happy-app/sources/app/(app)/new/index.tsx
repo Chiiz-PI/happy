@@ -90,6 +90,15 @@ const ALL_AGENTS: { key: AgentKey; label: string }[] = [
 
 type PickerItem = { key: string; label: string; subtitle?: string; dimmed?: boolean };
 
+// Agents whose discovered local conversations can be resumed on spawn,
+// mapped to the spawn-happy-session option carrying the resume id.
+// Discovery itself is agent-generic (list-local-sessions RPC); an agent
+// joins this map once the daemon grows a resume path for it.
+const RESUME_SPAWN_FIELD: Partial<Record<AgentKey, 'resumeClaudeSessionId' | 'resumeCodexThreadId'>> = {
+    claude: 'resumeClaudeSessionId',
+    codex: 'resumeCodexThreadId',
+};
+
 type PickerType = 'machine' | 'path' | 'worktree' | 'agent' | 'model' | 'effort' | 'permission' | 'resume';
 
 type PermissionStyle = { color: string; icon: 'play-forward' | 'pause' };
@@ -874,7 +883,7 @@ function NewSessionScreen() {
         setResumeSession(null);
         setLocalSessions([]);
         if (!selectedMachineId || !machineOnline) return;
-        if (selectedAgent !== 'claude' && selectedAgent !== 'codex') return;
+        if (!RESUME_SPAWN_FIELD[selectedAgent]) return;
         let cancelled = false;
         machineListLocalSessions(selectedMachineId, selectedAgent).then((result) => {
             if (cancelled) return;
