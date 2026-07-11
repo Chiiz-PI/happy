@@ -416,6 +416,79 @@ export async function machineResumeSession(options: ResumeSessionOptions & { mod
     }
 }
 
+// Machine-level directory browsing (read-only, confined to the machine's
+// home directory). Backs the folder picker on the new-session screen.
+export interface MachineDirectoryEntry {
+    name: string;
+    type: 'file' | 'directory' | 'other';
+    modified?: number; // epoch ms
+    /** Present on directories: true when the folder contains a .git entry. */
+    isGitRepo?: boolean;
+}
+
+export interface MachineListDirectoryResponse {
+    success: boolean;
+    /** Resolved absolute path that was listed. */
+    path?: string;
+    homeDir?: string;
+    entries?: MachineDirectoryEntry[];
+    error?: string;
+}
+
+/**
+ * List a directory on the machine (daemon RPC, home-scoped). Omitting
+ * `path` lists the home directory.
+ */
+export async function machineListDirectory(machineId: string, path?: string): Promise<MachineListDirectoryResponse> {
+    try {
+        return await apiSocket.machineRPC<MachineListDirectoryResponse, { path?: string }>(
+            machineId,
+            'machine-list-directory',
+            { path },
+        );
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to list directory',
+        };
+    }
+}
+
+// Local (on-disk) agent conversations discovered on the machine — Claude
+// Code sessions and Codex threads started outside Happy. The id feeds
+// spawn-happy-session's resumeClaudeSessionId / resumeCodexThreadId.
+export interface LocalAgentSession {
+    id: string;
+    directory: string;
+    summary: string;
+    updatedAt: number; // epoch ms
+}
+
+export interface ListLocalSessionsResponse {
+    success: boolean;
+    sessions?: LocalAgentSession[];
+    error?: string;
+}
+
+/**
+ * List conversations stored on the machine by the agent's own CLI
+ * (~/.claude/projects, ~/.codex/sessions), most recent first.
+ */
+export async function machineListLocalSessions(machineId: string, agent: 'claude' | 'codex'): Promise<ListLocalSessionsResponse> {
+    try {
+        return await apiSocket.machineRPC<ListLocalSessionsResponse, {}>(
+            machineId,
+            agent === 'claude' ? 'claude-list-local-sessions' : 'codex-list-local-sessions',
+            {},
+        );
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to list local sessions',
+        };
+    }
+}
+
 /**
  * Permanently remove a machine from the server. Sessions spawned by the
  * machine are preserved; only the Machine row and its AccessKeys are deleted.
