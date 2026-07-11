@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
 import { encodeBase64, decodeBase64, encrypt, decrypt } from '@/api/encryption';
-import { registerMachineHandlers } from './registerMachineHandlers';
+import { registerMachineHandlers, registerLocalSessionProvider, unregisterLocalSessionProvider } from './registerMachineHandlers';
 
 describe('registerMachineHandlers', () => {
     let home: string;
@@ -92,8 +92,8 @@ describe('registerMachineHandlers', () => {
         });
     });
 
-    describe('local session listing', () => {
-        it('claude-list-local-sessions returns sessions from CLAUDE_CONFIG_DIR', async () => {
+    describe('list-local-sessions', () => {
+        it('returns claude sessions from CLAUDE_CONFIG_DIR', async () => {
             const projectDir = join(home, '.claude', 'projects', '-home-user-app');
             await mkdir(projectDir, { recursive: true });
             const id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
@@ -101,13 +101,13 @@ describe('registerMachineHandlers', () => {
                 type: 'user', cwd: '/home/user/app', message: { role: 'user', content: 'hello there' },
             }) + '\n', 'utf-8');
 
-            const result = await call<any>('claude-list-local-sessions', {});
+            const result = await call<any>('list-local-sessions', { agent: 'claude' });
             expect(result.success).toBe(true);
             expect(result.sessions).toHaveLength(1);
             expect(result.sessions[0]).toMatchObject({ id, directory: '/home/user/app', summary: 'hello there' });
         });
 
-        it('codex-list-local-sessions returns threads from CODEX_HOME', async () => {
+        it('returns codex threads from CODEX_HOME', async () => {
             const day = join(home, '.codex', 'sessions', '2026', '07', '10');
             await mkdir(day, { recursive: true });
             const id = '019f4502-9e70-7733-8bfc-bb3e82d7bacb';
@@ -117,17 +117,43 @@ describe('registerMachineHandlers', () => {
             ];
             await writeFile(join(day, `rollout-2026-07-10T00-00-00-${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
 
-            const result = await call<any>('codex-list-local-sessions', {});
+            const result = await call<any>('list-local-sessions', { agent: 'codex' });
             expect(result.success).toBe(true);
             expect(result.sessions).toHaveLength(1);
             expect(result.sessions[0]).toMatchObject({ id, directory: '/home/user/app', summary: 'do the thing' });
         });
 
         it('returns empty lists when the stores do not exist', async () => {
-            const claude = await call<any>('claude-list-local-sessions', {});
+            const claude = await call<any>('list-local-sessions', { agent: 'claude' });
             expect(claude).toEqual({ success: true, sessions: [] });
-            const codex = await call<any>('codex-list-local-sessions', {});
+            const codex = await call<any>('list-local-sessions', { agent: 'codex' });
             expect(codex).toEqual({ success: true, sessions: [] });
+        });
+
+        it('returns an empty list for agents without a provider', async () => {
+            const result = await call<any>('list-local-sessions', { agent: 'gemini' });
+            expect(result).toEqual({ success: true, sessions: [] });
+        });
+
+        it('rejects a missing agent parameter', async () => {
+            const result = await call<any>('list-local-sessions', {});
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('agent is required');
+        });
+
+        it('uses providers registered at runtime', async () => {
+            registerLocalSessionProvider('grok', async () => [
+                { id: 'g-1', directory: '/home/user/app', summary: 'from grok', updatedAt: 123 },
+            ]);
+            try {
+                const result = await call<any>('list-local-sessions', { agent: 'grok' });
+                expect(result.success).toBe(true);
+                expect(result.sessions).toEqual([
+                    { id: 'g-1', directory: '/home/user/app', summary: 'from grok', updatedAt: 123 },
+                ]);
+            } finally {
+                unregisterLocalSessionProvider('grok');
+            }
         });
     });
 });

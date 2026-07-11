@@ -482,14 +482,16 @@ export interface ListLocalSessionsResponse {
 
 /**
  * List conversations stored on the machine by the agent's own CLI
- * (~/.claude/projects, ~/.codex/sessions), most recent first.
+ * (~/.claude/projects, ~/.codex/sessions, ...), most recent first. The
+ * daemon resolves the agent to a discovery provider; agents without one
+ * return an empty list.
  */
-export async function machineListLocalSessions(machineId: string, agent: 'claude' | 'codex'): Promise<ListLocalSessionsResponse> {
+export async function machineListLocalSessions(machineId: string, agent: string): Promise<ListLocalSessionsResponse> {
     try {
-        return await apiSocket.machineRPC<ListLocalSessionsResponse, {}>(
+        return await apiSocket.machineRPC<ListLocalSessionsResponse, { agent: string }>(
             machineId,
-            agent === 'claude' ? 'claude-list-local-sessions' : 'codex-list-local-sessions',
-            {},
+            'list-local-sessions',
+            { agent },
         );
     } catch (error) {
         return {
