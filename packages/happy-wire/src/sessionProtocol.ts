@@ -1,9 +1,10 @@
 /**
- * ⚠️ UNDER REVIEW — LIKELY NEEDS MORE CAREFUL DESIGN
+ * UNDER REVIEW - NEEDS MORE CAREFUL DESIGN
  *
- * This session protocol is not used in production and should NOT be used in dev
- * environments either until we revisit the design. The legacy protocol
- * (role: 'user' / role: 'agent') is the active code path everywhere.
+ * This session protocol is currently emitted by multiple CLI runtimes and
+ * normalized by the app, but the format is still evolving. Treat this as a
+ * compatibility contract for current producers/consumers, not as a final
+ * cross-agent standard.
  *
  * Before investing more here, look at how pi.dev standardizes their agent
  * protocol — we may want to align with or build on that approach instead of
@@ -23,6 +24,18 @@ export const sessionTextEventSchema = z.object({
   text: z.string(),
   thinking: z.boolean().optional(),
 });
+
+export const sessionUsageSchema = z
+  .object({
+    input_tokens: z.number().int().nonnegative(),
+    cache_creation_input_tokens: z.number().int().nonnegative().optional(),
+    cache_read_input_tokens: z.number().int().nonnegative().optional(),
+    output_tokens: z.number().int().nonnegative(),
+    context_window: z.number().int().positive().optional(),
+    service_tier: z.string().optional(),
+  })
+  .passthrough();
+export type SessionUsage = z.infer<typeof sessionUsageSchema>;
 
 export const sessionServiceMessageEventSchema = z.object({
   t: z.literal('service'),
@@ -70,24 +83,11 @@ export const sessionStartEventSchema = z.object({
 export const sessionTurnEndStatusSchema = z.enum(['completed', 'failed', 'cancelled']);
 export type SessionTurnEndStatus = z.infer<typeof sessionTurnEndStatusSchema>;
 
-// Claude-style per-turn token usage, attached to turn-end envelopes so
-// clients can surface token/context telemetry for agents (e.g. ACP) whose
-// usage is not embedded in provider message payloads.
-export const sessionUsageSchema = z.object({
-  input_tokens: z.number(),
-  output_tokens: z.number(),
-  cache_creation_input_tokens: z.number().optional(),
-  cache_read_input_tokens: z.number().optional(),
-  // Context window size of the model that produced this turn, when the
-  // agent reports it (e.g. ACP availableModels[]._meta.totalContextTokens).
-  // Lets clients compute context headroom without hardcoding a window size.
-  context_window: z.number().optional(),
-});
-export type SessionUsage = z.infer<typeof sessionUsageSchema>;
-
 export const sessionTurnEndEventSchema = z.object({
   t: z.literal('turn-end'),
   status: sessionTurnEndStatusSchema,
+  // Claude-style per-turn token usage, attached by agents (e.g. ACP) whose
+  // usage is not embedded in provider message payloads.
   usage: sessionUsageSchema.optional(),
 });
 
@@ -128,6 +128,9 @@ export const sessionEnvelopeSchema = z
     // Codex app-server item id for this envelope. Used as the precise
     // rollback point for Codex thread duplicate/fork-from-message.
     codexItemId: z.string().min(1).optional(),
+    // Optional model usage carried by the source agent message. Consumers use
+    // this to update session context meters without rendering a separate row.
+    usage: sessionUsageSchema.optional(),
     ev: sessionEventSchema,
   })
   .superRefine((envelope, ctx) => {
@@ -156,6 +159,7 @@ export type CreateEnvelopeOptions = {
   subagent?: string;
   claudeUuid?: string;
   codexItemId?: string;
+  usage?: SessionUsage;
 };
 
 export function createEnvelope(role: SessionRole, ev: SessionEvent, opts: CreateEnvelopeOptions = {}): SessionEnvelope {
@@ -167,6 +171,7 @@ export function createEnvelope(role: SessionRole, ev: SessionEvent, opts: Create
     ...(opts.subagent ? { subagent: opts.subagent } : {}),
     ...(opts.claudeUuid ? { claudeUuid: opts.claudeUuid } : {}),
     ...(opts.codexItemId ? { codexItemId: opts.codexItemId } : {}),
+    ...(opts.usage ? { usage: opts.usage } : {}),
     ev,
   });
 }

@@ -17,6 +17,7 @@ import { Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Modal } from '@/modal';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
+import { resolveControlMode } from '@/sync/controlHandoff';
 
 const SCROLL_THRESHOLD = 300;
 
@@ -74,12 +75,30 @@ const ChatListInternal = React.memo((props: {
     const { theme } = useUnistyles();
     const flatListRef = React.useRef<FlatList>(null);
     const [showScrollButton, setShowScrollButton] = React.useState(false);
+    const [handoffListRevision, setHandoffListRevision] = React.useState(0);
     // Tracks whether the scroll-button is currently shown, so we only call
     // setShowScrollButton when the threshold is actually crossed instead of
     // on every scroll frame (60Hz). Without this guard, the entire list
     // parent re-renders on every wheel tick.
     const showScrollButtonRef = React.useRef(false);
     const session = useSession(props.sessionId);
+    const controlMode = resolveControlMode(session?.agentState?.controlledByUser);
+    const previousControlModeRef = React.useRef(controlMode);
+
+    React.useEffect(() => {
+        if (previousControlModeRef.current === controlMode) {
+            return;
+        }
+        previousControlModeRef.current = controlMode;
+        if (Platform.OS !== 'web') {
+            return;
+        }
+        if (showScrollButtonRef.current) {
+            showScrollButtonRef.current = false;
+            setShowScrollButton(false);
+        }
+        setHandoffListRevision((revision) => revision + 1);
+    }, [controlMode]);
 
     // Collapse agent work between a user prompt and the final answer.
     // Nested tool groups remain expandable inside the work block.
@@ -312,6 +331,7 @@ const ChatListInternal = React.memo((props: {
     return (
         <View style={{ flex: 1 }}>
             <FlatList
+                key={`${props.sessionId}:${handoffListRevision}`}
                 ref={flatListRef}
                 data={displayItems}
                 inverted={true}
@@ -332,6 +352,9 @@ const ChatListInternal = React.memo((props: {
                 }}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
+                // Inverted list: paddingTop renders at the visual bottom,
+                // keeping the newest message off the composer edge.
+                contentContainerStyle={{ paddingTop: 8 }}
                 renderItem={renderItem}
                 onScroll={handleScroll}
                 scrollEventThrottle={16}

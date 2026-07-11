@@ -303,6 +303,7 @@ export type Metadata = {
     updatedAt: number
   },
   machineId?: string,
+  gitBranch?: string,
   claudeSessionId?: string, // Claude Code session ID
   codexThreadId?: string, // Codex app-server thread ID
   acpSessionId?: string, // Provider session ID for generic ACP agents (used with session/load)
@@ -370,7 +371,11 @@ export type AgentState = {
     [id: string]: {
       tool: string,
       arguments: any,
-      createdAt: number
+      createdAt: number,
+      // Raw provider tool-use id when the request id is scoped (e.g. claude
+      // subagent ids are `agentID:toolUseID`); the app joins the permission
+      // card to its tool call through this.
+      toolUseId?: string
     }
   }
   completedRequests?: {
@@ -383,7 +388,8 @@ export type AgentState = {
       reason?: string,
       mode?: PermissionMode,
       decision?: 'approved' | 'approved_for_session' | 'denied' | 'abort',
-      allowTools?: string[]
+      allowTools?: string[],
+      toolUseId?: string
     }
   }
   agentGoalStatus?: AgentGoalStatus
