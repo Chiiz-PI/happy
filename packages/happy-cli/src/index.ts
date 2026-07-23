@@ -26,6 +26,7 @@ import { listDaemonSessions, stopDaemonSession } from './daemon/controlClient'
 import { handleAuthCommand } from './commands/auth'
 import { handleConnectCommand } from './commands/connect'
 import { handleSandboxCommand } from './commands/sandbox'
+import { handleIscpCommand } from './commands/iscp'
 import { handleServerCommand } from './commands/server'
 import { spawnHappyCLI } from './utils/spawnHappyCLI'
 import { claudeCliPath } from './claude/claudeLocal'
@@ -102,6 +103,17 @@ Conversation history is preserved on the server, but in-flight tool calls are in
   } else if (subcommand === 'sandbox') {
     try {
       await handleSandboxCommand(args.slice(1));
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
+  } else if (subcommand === 'iscp') {
+    try {
+      await handleIscpCommand(args.slice(1));
     } catch (error) {
       console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
       if (process.env.DEBUG) {
@@ -720,6 +732,7 @@ ${chalk.bold('Usage:')}
   happy acp               Start a generic ACP-compatible agent
   happy connect           Connect AI vendor API keys
   happy sandbox           Configure and manage OS-level sandboxing
+  happy iscp              ISCP device enrollment (dual-stack)
   happy notify            Send push notification
   happy daemon            Manage background service that allows
                             to spawn new sessions away from your computer
