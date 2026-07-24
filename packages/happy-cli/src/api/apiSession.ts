@@ -21,6 +21,7 @@ import {
 } from '@/claude/utils/sessionProtocolMapper';
 import { InvalidateSync } from '@/utils/sync';
 import { DaemonSessionEventTee, iscpNetworkProfile } from '@/iscp/daemonTee';
+import { startIscpSessionRpcServer } from '@/iscp/sessionRpcServer';
 import axios from 'axios';
 
 /**
@@ -244,6 +245,18 @@ export class ApiSessionClient extends EventEmitter {
         this.sessionId = session.id;
         const iscpProfile = iscpNetworkProfile();
         this.iscpTee = iscpProfile !== null ? new DaemonSessionEventTee(iscpProfile, session.id) : null;
+        if (iscpProfile !== null) {
+            // ISCP mode: expose the localhost RPC bridge so the daemon's wire
+            // responder can deliver user messages and session RPCs.
+            void startIscpSessionRpcServer({
+                profileId: iscpProfile,
+                sessionId: session.id,
+                onUserMessage: (body) => this.routeIncomingMessage(body),
+                callHandler: (method, params) => this.rpcHandlerManager.callHandler(method, params),
+            }).catch((error) => {
+                logger.debug('[API] Failed to start ISCP session RPC server', { error });
+            });
+        }
         this.metadata = session.metadata;
         this.metadataVersion = session.metadataVersion;
         this.agentState = session.agentState;

@@ -234,6 +234,31 @@ export function startDaemonControlServer({
       return { results };
     });
 
+    // ISCP session RPC bridge registration: sessions report the localhost
+    // port where they accept plaintext RPC (user-message delivery, session.rpc).
+    typed.post('/iscp/session-rpc', {
+      schema: {
+        body: z.object({
+          profileId: z.string().min(1),
+          sessionId: z.string().min(1),
+          port: z.number().int().min(1).max(65535)
+        }),
+        response: {
+          200: z.object({ status: z.literal('ok') }),
+          503: z.object({ error: z.string() })
+        }
+      }
+    }, async (request, reply) => {
+      if (!iscp) {
+        reply.code(503);
+        return { error: 'ISCP is not enabled on this daemon' };
+      }
+      const { profileId, sessionId, port } = request.body;
+      iscp.registerSessionRpcPort(profileId, sessionId, port);
+      logger.debug(`[CONTROL SERVER] ISCP session RPC registered: ${sessionId} → 127.0.0.1:${port}`);
+      return { status: 'ok' as const };
+    });
+
     // Stop daemon
     typed.post('/stop', {
       schema: {

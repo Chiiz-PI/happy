@@ -144,6 +144,17 @@ function persistProfile(profileId: string, device: Device, bundle: IscpProfileBu
   return dir
 }
 
+/** Persist rotated relay credentials back into the profile bundle (0600). */
+export function updateProfileCredentials(profileId: string, credentials: { accessToken: string; refreshToken: string }): void {
+  const bundle = readProfileBundle(profileId)
+  if (!bundle) return
+  bundle.access_credential = { ...bundle.access_credential, token: credentials.accessToken }
+  bundle.refresh_credential = { ...bundle.refresh_credential, token: credentials.refreshToken }
+  const file = join(iscpProfileDir(profileId), 'bundle.json')
+  writeFileSync(file, JSON.stringify(bundle, null, 2), { mode: 0o600 })
+  chmodSync(file, 0o600)
+}
+
 export async function enroll(opts: EnrollOptions): Promise<{ profileId: string; dir: string; bundle: IscpProfileBundle }> {
   const provider = createNobleProvider()
   const { log } = opts

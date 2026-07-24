@@ -25,9 +25,22 @@ export interface SessionEventNotification {
 }
 
 export class DaemonIscpService {
+  /** Injectable for tests; defaults to the enrolled profile directory. */
+  constructor(private readonly profileDirFor: (profileId: string) => string = iscpProfileDir) {}
+
   private readonly logs = new Map<string, DaemonEventLog>()
   /** Emits 'session-event' with SessionEventNotification for live subscribers. */
   readonly events = new EventEmitter()
+  /** sessionId → localhost RPC port of the running ISCP session process. */
+  private readonly sessionRpcPorts = new Map<string, { profileId: string; port: number }>()
+
+  registerSessionRpcPort(profileId: string, sessionId: string, port: number): void {
+    this.sessionRpcPorts.set(sessionId, { profileId, port })
+  }
+
+  sessionRpcPort(sessionId: string): number | null {
+    return this.sessionRpcPorts.get(sessionId)?.port ?? null
+  }
 
   log(profileId: string): DaemonEventLog {
     if (profileId === '' || profileId.includes('/') || profileId.includes('\\') || profileId === '.' || profileId === '..') {
@@ -35,7 +48,7 @@ export class DaemonIscpService {
     }
     let log = this.logs.get(profileId)
     if (!log) {
-      log = new DaemonEventLog(join(iscpProfileDir(profileId), 'eventlog'))
+      log = new DaemonEventLog(join(this.profileDirFor(profileId), 'eventlog'))
       this.logs.set(profileId, log)
     }
     return log

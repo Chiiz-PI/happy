@@ -20,6 +20,7 @@ import type { PersistedSession } from '@/persistence';
 import { cleanupDaemonState, isDaemonRunningCurrentlyInstalledHappyVersion, stopDaemon } from './controlClient';
 import { startDaemonControlServer } from './controlServer';
 import { DaemonIscpService } from '@/iscp/daemonIscp';
+import { startDaemonIscpPeers } from '@/iscp/daemonPeer';
 import { statSync } from 'fs';
 import { join } from 'path';
 import { projectPath } from '@/projectPath';
@@ -831,6 +832,23 @@ export async function startDaemon(): Promise<void> {
     writeDaemonState(fileState);
     logger.debug('[DAEMON RUN] Daemon state written');
 
+    // ISCP dual-stack: bring enrolled profiles online as ISCP peers. Failures
+    // are logged and never block legacy operation.
+    let iscpPeers: { profiles: string[]; stop: () => void } = { profiles: [], stop: () => { } };
+    try {
+      iscpPeers = await startDaemonIscpPeers({
+        iscp,
+        getChildren: getCurrentChildren,
+        stopSession,
+        spawnSession
+      });
+      if (iscpPeers.profiles.length > 0) {
+        logger.debug(`[DAEMON RUN] ISCP peers online for profiles: ${iscpPeers.profiles.join(', ')}`);
+      }
+    } catch (error) {
+      logger.debug('[DAEMON RUN] ISCP peer startup failed', { error });
+    }
+
     // Capture the bundled CLI's mtime at startup so the heartbeat can detect
     // when npm replaces `dist/index.mjs` on disk (= the user ran `npm i -g happy`).
     // We previously compared disk `package.json.version` to our bundled version,
@@ -933,6 +951,7 @@ export async function startDaemon(): Promise<void> {
         // `happy daemon start` reads our still-present daemon.state.json, sees
         // isDaemonRunningCurrentlyInstalledHappyVersion() === true, and exits —
         // leaving nothing running once we also exit.
+        iscpPeers.stop();
         apiMachine.shutdown();
         await stopControlServer();
         await cleanupDaemonState();
@@ -1001,6 +1020,7 @@ export async function startDaemon(): Promise<void> {
       // Give time for metadata update to send
       await new Promise(resolve => setTimeout(resolve, 100));
 
+      iscpPeers.stop();
       apiMachine.shutdown();
       await stopControlServer();
       await cleanupDaemonState();
