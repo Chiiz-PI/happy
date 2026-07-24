@@ -191,6 +191,7 @@ export class WireResponder {
       events: page.events.map((event) => ({
         seq: event.seq,
         cursor: encodeWireCursor({ scope: params.sessionId, seq: event.seq, epoch: page.epoch }),
+        ...(event.localId !== undefined ? { localId: event.localId } : {}),
         body: event.body,
         at: event.at,
       })),

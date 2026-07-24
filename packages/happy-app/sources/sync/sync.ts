@@ -2132,6 +2132,14 @@ class Sync {
                     void this.handleUpdate(event.body);
                 } else if (event.type === 'legacy-ephemeral') {
                     void this.handleEphemeralUpdate(event.body);
+                } else if (event.type === 'session-event') {
+                    // ISCP normalizer (the one sanctioned mode conditional):
+                    // bodies arrive plaintext (iscp_session_v1 already
+                    // protected the relay leg), ordered and gap-free per
+                    // session courtesy of ISCPHappyTransport.
+                    this.handleWireSessionEvent(event);
+                } else if (event.type === 'ephemeral') {
+                    void this.handleEphemeralUpdate(event.body);
                 }
             }
         })();
@@ -2160,6 +2168,29 @@ class Sync {
             }
         });
     }
+
+    /**
+     * ISCP-mode session event → the same NormalizedMessage application path
+     * legacy uses after decryption. The event body is exactly what the CLI
+     * session wrote to the daemon event log (the pre-encryption message
+     * content), so it parses as a RawRecord directly; `localId` carries the
+     * idempotency key for optimistic-send reconciliation. Sessions themselves
+     * still materialize via the legacy sessions sync in this phase.
+     */
+    private handleWireSessionEvent = (event: { sessionId: string; seq: number; localId?: string; body: unknown }) => {
+        const normalized = normalizeRawMessage(
+            `iscp-${event.sessionId}-${event.seq}`,
+            event.localId ?? null,
+            Date.now(),
+            event.body as RawRecord
+        );
+        if (!normalized) {
+            console.log(`⚠️ Sync: dropping unparseable ISCP session event ${event.sessionId}#${event.seq}`);
+            return;
+        }
+        this.enqueueMessages(event.sessionId, [normalized]);
+        this.onSessionVisible(event.sessionId);
+    };
 
     private handleUpdate = async (update: unknown) => {
         const validatedUpdate = ApiUpdateContainerSchema.safeParse(update);

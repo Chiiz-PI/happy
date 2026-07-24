@@ -31,6 +31,8 @@ export const SessionWireEventSchema = z.object({
   sessionId: z.string(),
   seq: z.number().int().nonnegative(),
   cursor: z.string(),
+  /** Idempotency key of the originating append (mirrors legacy localId), for optimistic-send reconciliation. */
+  localId: z.string().optional(),
   body: z.unknown(),
 });
 export type SessionWireEvent = z.infer<typeof SessionWireEventSchema>;

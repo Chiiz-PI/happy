@@ -140,6 +140,7 @@ async function startProfilePeer(
       sessionId: notification.sessionId,
       seq: notification.record.seq,
       cursor: encodeWireCursor({ scope: notification.sessionId, seq: notification.record.seq, epoch: notification.epoch }),
+      ...(notification.record.localId !== undefined ? { localId: notification.record.localId } : {}),
       body: notification.record.body,
     }
     for (const peerDeviceId of subscribedPeers) {
