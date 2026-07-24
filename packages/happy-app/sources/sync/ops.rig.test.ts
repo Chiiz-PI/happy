@@ -6,7 +6,7 @@ const { sessionRPC, getState } = vi.hoisted(() => ({
     getState: vi.fn(),
 }));
 
-vi.mock('./apiSocket', () => ({ apiSocket: { sessionRPC } }));
+vi.mock('./transport/transport', () => ({ sessionRPC }));
 vi.mock('./sync', () => ({ sync: {} }));
 vi.mock('./storage', () => ({ storage: { getState } }));
 

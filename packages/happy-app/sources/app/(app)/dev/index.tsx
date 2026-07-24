@@ -214,6 +214,12 @@ export default function DevScreen() {
                     onPress={() => router.push('/dev/device-info')}
                 />
                 <Item
+                    title="ISCP"
+                    subtitle="Dual-stack enrollment and network profiles"
+                    icon={<Ionicons name="git-network-outline" size={28} color="#007AFF" />}
+                    onPress={() => router.push('/dev/iscp' as never)}
+                />
+                <Item
                     title="List Components"
                     subtitle="Demo of Item, ItemGroup, and ItemList"
                     icon={<Ionicons name="list-outline" size={28} color="#007AFF" />}
