@@ -376,7 +376,10 @@ export class IscpPeer {
     try {
       await this.http.submitEnvelope(envelope, this.opts.device, this.accessToken);
     } catch (error) {
-      if (error instanceof IscpError && error.code === IscpErrorCodes.AccessInvalid) {
+      // Rotate only on a hard credential failure. Retryable ISCPACCESS001
+      // (e.g. relay rate limiting) must NOT rotate: it would burn the
+      // refresh pair and add more requests against the limiter.
+      if (error instanceof IscpError && error.code === IscpErrorCodes.AccessInvalid && !error.retryable) {
         await this.rotateCredentials();
         await this.http.submitEnvelope(envelope, this.opts.device, this.accessToken);
         return;

@@ -33,6 +33,16 @@ export interface RelayWsBackoff {
   factor: number;
   /** 0..1 random jitter fraction. */
   jitter: number;
+  /**
+   * Zombie-socket watchdog: if no message arrives for this long the socket is
+   * abandoned and the loop reconnects. Needed because some WebSocket
+   * implementations (observed with Node's undici under concurrent relay
+   * connections) emit `error` without a following `close`, leaving a
+   * half-dead socket that would otherwise stall delivery forever. The
+   * reference relay drains and closes every poll cycle, so a healthy
+   * connection never sits silent this long.
+   */
+  idleTimeoutMs: number;
 }
 
 const DEFAULT_BACKOFF: RelayWsBackoff = {
@@ -41,6 +51,7 @@ const DEFAULT_BACKOFF: RelayWsBackoff = {
   maxDelayMs: 30_000,
   factor: 2,
   jitter: 0.2,
+  idleTimeoutMs: 60_000,
 };
 
 export interface RelayWsClientOptions {
@@ -128,11 +139,31 @@ export class RelayWsClient {
     }
     this.socket = socket;
     let drained = false;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const abandonIfIdle = () => {
+      if (this.socket !== socket) return;
+      // Half-dead socket (error without close, or a silent peer): abandon it
+      // and reconnect. A late onclose from the old socket is ignored by the
+      // identity checks below.
+      this.socket = null;
+      try {
+        socket.close();
+      } catch {
+        // already dead
+      }
+      this.scheduleReconnect(drained);
+    };
+    const armIdleTimer = () => {
+      if (idleTimer !== null) clearTimeout(idleTimer);
+      idleTimer = setTimeout(abandonIfIdle, this.backoff.idleTimeoutMs);
+    };
+    armIdleTimer();
     socket.onopen = () => {
       if (this.socket === socket) this.setState('CONNECTED');
     };
     socket.onmessage = (event) => {
       if (this.socket !== socket) return;
+      armIdleTimer();
       try {
         drained = this.handleMessage(socket, String(event.data)) || drained;
       } catch (error) {
@@ -143,6 +174,10 @@ export class RelayWsClient {
       if (this.socket === socket) this.opts.onError?.(error);
     };
     socket.onclose = () => {
+      if (idleTimer !== null) {
+        clearTimeout(idleTimer);
+        idleTimer = null;
+      }
       if (this.socket !== socket) return;
       this.socket = null;
       this.scheduleReconnect(drained);

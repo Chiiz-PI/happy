@@ -38,6 +38,8 @@ import { WireResponder, type WireResponderDeps } from '@/iscp/wireResponder'
 export interface DaemonIscpPeers {
   /** Profiles that came online. */
   profiles: string[]
+  /** Relay WS state per online peer (diagnostics). */
+  connectionStates: () => string[]
   stop: () => void
 }
 
@@ -65,6 +67,7 @@ export async function startDaemonIscpPeers(
   }
   return {
     profiles,
+    connectionStates: () => peers.map((peer) => peer.connectionState),
     stop: () => {
       for (const peer of peers) peer.stop()
     },
@@ -107,6 +110,10 @@ async function startProfilePeer(
       accessToken: bundle.access_credential.token,
       refreshToken: bundle.refresh_credential.token,
     },
+    // The reference relay closes after every drain (sub-second cycles), so a
+    // silent socket is dead after seconds, not the generic 60s default —
+    // keep the daemon reachable across app reconnects.
+    wsBackoff: { idleTimeoutMs: 15_000 },
     resolvePeerIdentity: async (deviceId) => (await trustRoot.deviceStatus(deviceId)).identity,
     manifest: defaultAgentCapabilityManifest(),
     provider,
@@ -126,6 +133,13 @@ async function startProfilePeer(
       })().catch((error) => {
         logger.debug('[ISCP PEER] wire request handling failed', { peerDeviceId, error })
       })
+    },
+    onConnectionState: (state) => {
+      // READY fires every drain cycle (reference relay closes after drain);
+      // only transitions around failures are interesting.
+      if (state === 'CLOSED') {
+        logger.debug(`[ISCP PEER] relay ws CLOSED (profile ${profileId}) — peer will no longer receive envelopes`)
+      }
     },
     onError: (error) => {
       logger.debug(`[ISCP PEER] transport error (profile ${profileId})`, { error })
