@@ -19,6 +19,7 @@ import type { PersistedSession } from '@/persistence';
 
 import { cleanupDaemonState, isDaemonRunningCurrentlyInstalledHappyVersion, stopDaemon } from './controlClient';
 import { startDaemonControlServer } from './controlServer';
+import { DaemonIscpService } from '@/iscp/daemonIscp';
 import { statSync } from 'fs';
 import { join } from 'path';
 import { projectPath } from '@/projectPath';
@@ -805,13 +806,18 @@ export async function startDaemon(): Promise<void> {
       pidToTrackedSession.delete(pid);
     };
 
+    // ISCP dual-stack: event-log ingestion is always available; the ISCP
+    // peer itself (workstream 2) only comes online for enrolled profiles.
+    const iscp = new DaemonIscpService();
+
     // Start control server
     const { port: controlPort, stop: stopControlServer } = await startDaemonControlServer({
       getChildren: getCurrentChildren,
       stopSession,
       spawnSession,
       requestShutdown: () => requestShutdown('happy-cli'),
-      onHappySessionWebhook
+      onHappySessionWebhook,
+      iscp
     });
 
     // Write initial daemon state (no lock needed for state file)
