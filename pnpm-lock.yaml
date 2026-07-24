@@ -506,6 +506,9 @@ importers:
       '@slopus/happy-wire':
         specifier: workspace:*
         version: link:../happy-wire
+      '@slopus/iscp':
+        specifier: workspace:*
+        version: link:../iscp
       '@tauri-apps/api':
         specifier: 2.9.1
         version: 2.9.1
