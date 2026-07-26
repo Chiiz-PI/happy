@@ -35,6 +35,7 @@ import { extractNoSandboxFlag } from './utils/sandboxFlags'
 import { handleResumeCommand } from '@/resume/handleResumeCommand'
 import { ensureDaemonRunning } from './daemon/ensureDaemonRunning'
 import { handleCodexCommand } from './commands/codexCommand'
+import { sanitizeSessionEnvironment } from './daemon/sessionEnvironment'
 
 
 (async () => {
@@ -548,7 +549,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
       const child = spawnHappyCLI(['daemon', 'start-sync'], {
         detached: true,
         stdio: 'ignore',
-        env: process.env
+        env: sanitizeSessionEnvironment(process.env)
       });
       child.unref();
 
