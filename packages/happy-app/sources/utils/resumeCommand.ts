@@ -5,6 +5,8 @@ export type ResumeCommandMetadata = {
     claudeSessionId?: string | null;
     codexThreadId?: string | null;
     acpSessionId?: string | null;
+    client?: { id?: string | null } | null;
+    capabilities?: { resume?: boolean | null } | null;
 };
 
 export type ResumeCommandBlock = {
@@ -25,6 +27,9 @@ function isWindows(metadata: ResumeCommandMetadata): boolean {
 }
 
 function buildResumeInvocation(metadata: ResumeCommandMetadata): string | null {
+    if (metadata.client?.id === 'rig' || metadata.capabilities?.resume === false) {
+        return null;
+    }
     if ((metadata.flavor === 'codex' || metadata.flavor === 'openai' || metadata.flavor === 'gpt') && metadata.codexThreadId) {
         return `happy codex --resume ${metadata.codexThreadId}`;
     }

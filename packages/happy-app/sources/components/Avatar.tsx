@@ -14,6 +14,7 @@ interface AvatarProps {
     size?: number;
     monochrome?: boolean;
     flavor?: string | null;
+    clientId?: string | null;
     imageUrl?: string | null;
     thumbhash?: string | null;
 }
@@ -24,6 +25,7 @@ const flavorIcons = {
     gemini: require('@/assets/images/icon-gemini.png'),
     grok: require('@/assets/images/icon-grok.png'),
     openclaw: require('@/assets/images/icon-openclaw.png'),
+    rig: require('@/assets/images/icon-rig.png'),
 };
 
 const styles = StyleSheet.create((theme) => ({
@@ -43,10 +45,17 @@ const styles = StyleSheet.create((theme) => ({
         shadowRadius: 2,
         elevation: 3,
     },
+    rigFlavorIcon: {
+        backgroundColor: 'transparent',
+        padding: 0,
+        shadowOpacity: 0,
+        shadowRadius: 0,
+        elevation: 0,
+    },
 }));
 
 export const Avatar = React.memo((props: AvatarProps) => {
-    const { flavor, size = 48, imageUrl, thumbhash, ...avatarProps } = props;
+    const { flavor, clientId, size = 48, imageUrl, thumbhash, ...avatarProps } = props;
     const avatarStyle = useSetting('avatarStyle');
     const showFlavorIcons = useSetting('showFlavorIcons');
     const { theme } = useUnistyles();
@@ -67,8 +76,8 @@ export const Avatar = React.memo((props: AvatarProps) => {
         );
 
         // Add flavor icon overlay if enabled
-        if (showFlavorIcons && flavor) {
-            const effectiveFlavor = flavor || 'claude';
+        if (showFlavorIcons && (flavor || clientId === 'rig')) {
+            const effectiveFlavor = clientId === 'rig' ? 'rig' : (flavor || 'claude');
             const flavorIcon = flavorIcons[effectiveFlavor as keyof typeof flavorIcons] || flavorIcons.claude;
             const circleSize = Math.round(size * 0.35);
             const iconSize = effectiveFlavor === 'codex'
@@ -80,7 +89,7 @@ export const Avatar = React.memo((props: AvatarProps) => {
             return (
                 <View style={[styles.container, { width: size, height: size }]}>
                     {imageElement}
-                    <View style={[styles.flavorIcon, {
+                    <View style={[styles.flavorIcon, effectiveFlavor === 'rig' && styles.rigFlavorIcon, {
                         width: circleSize,
                         height: circleSize,
                         alignItems: 'center',
@@ -112,7 +121,7 @@ export const Avatar = React.memo((props: AvatarProps) => {
     }
 
     // Determine flavor icon for generated avatars
-    const effectiveFlavor = flavor || 'claude';
+    const effectiveFlavor = clientId === 'rig' ? 'rig' : (flavor || 'claude');
     const flavorIcon = flavorIcons[effectiveFlavor as keyof typeof flavorIcons] || flavorIcons.claude;
     // Make icons smaller while keeping same circle size
     // Claude slightly bigger than codex
@@ -124,11 +133,11 @@ export const Avatar = React.memo((props: AvatarProps) => {
             : Math.round(size * 0.35);
 
     // Only wrap in container if showing flavor icons and flavor was provided
-    if (showFlavorIcons && flavor !== null) {
+    if (showFlavorIcons && (flavor !== null || clientId === 'rig')) {
         return (
             <View style={[styles.container, { width: size, height: size }]}>
                 <AvatarComponent {...avatarProps} size={size} />
-                <View style={[styles.flavorIcon, {
+                <View style={[styles.flavorIcon, effectiveFlavor === 'rig' && styles.rigFlavorIcon, {
                     width: circleSize,
                     height: circleSize,
                     alignItems: 'center',

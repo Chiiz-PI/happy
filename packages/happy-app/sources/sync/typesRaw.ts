@@ -1,5 +1,6 @@
 import * as z from 'zod';
 import { isCuid } from '@paralleldrive/cuid2';
+import { stripLeadingTaskNotificationWrappers } from '@slopus/happy-wire';
 import { MessageMetaSchema, MessageMeta } from './typesMessageMeta';
 
 //
@@ -615,6 +616,11 @@ function normalizeSessionEnvelope(
     }
 
     if (envelope.ev.t === 'text') {
+        const visibleText = stripLeadingTaskNotificationWrappers(envelope.ev.text);
+        if (visibleText !== envelope.ev.text && visibleText.trim().length === 0) {
+            return null;
+        }
+
         if (envelope.role === 'user') {
             return {
                 id: messageId,
@@ -624,7 +630,7 @@ function normalizeSessionEnvelope(
                 isSidechain: false,
                 content: {
                     type: 'text',
-                    text: envelope.ev.text
+                    text: visibleText
                 },
                 meta,
                 claudeUuid: envelope.claudeUuid,
@@ -641,12 +647,12 @@ function normalizeSessionEnvelope(
             content: [
                 envelope.ev.thinking ? {
                     type: 'thinking',
-                    thinking: envelope.ev.text,
+                    thinking: visibleText,
                     uuid: contentUUID,
                     parentUUID
                 } : {
                     type: 'text',
-                    text: envelope.ev.text,
+                    text: visibleText,
                     uuid: contentUUID,
                     parentUUID
                 }
