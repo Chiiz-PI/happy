@@ -297,6 +297,8 @@ export const ca: TranslationStructure = {
         title: 'Iniciar nova sessió',
         machineOffline: 'La màquina està fora de línia',
         switchMachinesHint: '• Canvia de màquina fent clic a la màquina de dalt',
+        resumeTitle: 'Conversa',
+        resumeNew: 'Conversa nova',
     },
 
     sessionHistory: {

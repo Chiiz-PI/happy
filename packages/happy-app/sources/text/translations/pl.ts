@@ -314,6 +314,8 @@ export const pl: TranslationStructure = {
         title: 'Rozpocznij nową sesję',
         machineOffline: 'Maszyna jest offline',
         switchMachinesHint: '• Przełącz maszynę, klikając na nią powyżej',
+        resumeTitle: 'Rozmowa',
+        resumeNew: 'Nowa rozmowa',
     },
 
     sessionHistory: {

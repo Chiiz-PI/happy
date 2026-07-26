@@ -297,6 +297,8 @@ export const es: TranslationStructure = {
         title: 'Iniciar nueva sesión',
         machineOffline: 'La máquina está desconectada',
         switchMachinesHint: '• Cambia de máquina haciendo clic en la máquina de arriba',
+        resumeTitle: 'Conversación',
+        resumeNew: 'Nueva conversación',
     },
 
     sessionHistory: {

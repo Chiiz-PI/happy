@@ -394,7 +394,7 @@ function PickerContent({
     );
 }
 
-type ComposerSettingPickerType = Extract<PickerType, 'model' | 'effort' | 'permission'>;
+type ComposerSettingPickerType = Extract<PickerType, 'model' | 'effort' | 'permission' | 'resume'>;
 
 function ComposerSettingsContent({
     items,
@@ -447,14 +447,18 @@ function ComposerSettingsContent({
 
 function ComposerSettingsPickerContent({
     title,
+    fixedItems,
     items,
     selectedKey,
+    searchPlaceholder,
     onBack,
     onSelect,
 }: {
     title: string;
+    fixedItems?: PickerItem[];
     items: PickerItem[];
     selectedKey: string | null;
+    searchPlaceholder?: string;
     onBack: () => void;
     onSelect: (key: string) => void;
 }) {
@@ -481,9 +485,11 @@ function ComposerSettingsPickerContent({
             </View>
             <PickerContent
                 title={title}
+                fixedItems={fixedItems}
                 items={items}
                 selectedKey={selectedKey}
-                searchEnabled={false}
+                searchPlaceholder={searchPlaceholder}
+                searchEnabled={searchPlaceholder !== undefined}
                 onSelect={onSelect}
                 embedded
             />
@@ -1260,9 +1266,21 @@ function NewSessionScreen() {
                 icon: 'speedometer-outline',
             });
         }
+        // Resume lives in the settings sheet on native, where the config rows
+        // it sits between on web/desktop are collapsed away.
+        if (resumeItems.length > 0 || resumeSession) {
+            items.push({
+                key: 'resume',
+                label: t('newSession.resumeTitle'),
+                value: resumeSession
+                    ? (resumeSession.summary || resumeSession.id)
+                    : t('newSession.resumeNew'),
+                icon: 'time-outline',
+            });
+        }
 
         return items;
-    }, [currentEffort, currentModel, currentPermission, permissionStyle?.icon, selectedAgent, showEffort, showModel, showPermission]);
+    }, [currentEffort, currentModel, currentPermission, permissionStyle?.icon, resumeItems.length, resumeSession, selectedAgent, showEffort, showModel, showPermission]);
 
     // Display values
     const machineName = selectedMachine ? getMachineName(selectedMachine) : 'Select machine';
@@ -1291,7 +1309,7 @@ function NewSessionScreen() {
             case 'permission':
                 return { title: 'Permissions', items: getModePickerItems(permissionModes), selectedKey: currentPermission?.key ?? null, searchPlaceholder: 'search permissions...' };
             case 'resume':
-                return { title: 'Conversation', fixedItems: RESUME_FIXED_ITEMS, items: resumeItems, selectedKey: resumeSession?.id ?? '__none__', searchPlaceholder: 'search conversations...' };
+                return { title: t('newSession.resumeTitle'), fixedItems: getResumeFixedItems(), items: resumeItems, selectedKey: resumeSession?.id ?? '__none__', searchPlaceholder: 'search conversations...' };
             default:
                 return null;
         }
@@ -1335,10 +1353,34 @@ function NewSessionScreen() {
                     items: getModePickerItems(permissionModes),
                     selectedKey: currentPermission?.key ?? null,
                 };
+            case 'resume':
+                return {
+                    title: t('newSession.resumeTitle'),
+                    fixedItems: getResumeFixedItems(),
+                    items: resumeItems,
+                    selectedKey: resumeSession?.id ?? '__none__',
+                    searchPlaceholder: 'search conversations...',
+                };
             default:
                 return null;
         }
-    }, [composerSettingsPage, currentEffort?.key, currentModelKey, currentPermission?.key, effortLevels, modelModes, permissionModes, selectedAgent]);
+    }, [composerSettingsPage, currentEffort?.key, currentModelKey, currentPermission?.key, effortLevels, modelModes, permissionModes, resumeItems, resumeSession?.id, selectedAgent]);
+
+    // Picking a conversation to resume also pins the session to the directory
+    // it was recorded in, so a stale path/worktree can't send the resume to the
+    // wrong checkout. Shared by the web popover and the native settings sheet.
+    const applyResumeSelection = React.useCallback((key: string) => {
+        if (key === '__none__') {
+            setResumeSession(null);
+            return;
+        }
+        const session = localSessions.find((s) => s.id === key);
+        if (session) {
+            setResumeSession(session);
+            setSelectedPath(formatPathRelativeToHome(session.directory, selectedHomeDir));
+            setWorktreeKey('__none__');
+        }
+    }, [localSessions, selectedHomeDir, setSelectedPath, setWorktreeKey]);
 
     const handlePickerSelect = React.useCallback((key: string) => {
         switch (activePicker) {
@@ -1377,36 +1419,23 @@ function NewSessionScreen() {
                 }
                 break;
             }
-            case 'resume': {
-                if (key === '__none__') {
-                    setResumeSession(null);
-                } else {
-                    const session = localSessions.find((s) => s.id === key);
-                    if (session) {
-                        setResumeSession(session);
-                        setSelectedPath(formatPathRelativeToHome(session.directory, selectedHomeDir));
-                        setWorktreeKey('__none__');
-                    }
-                }
+            case 'resume':
+                applyResumeSelection(key);
                 break;
-            }
         }
         setActivePicker(null);
     }, [
         activePicker,
+        applyResumeSelection,
         availableAgents,
         draft.setEffortLevel,
         draft.setModelMode,
         draft.setPermissionMode,
         effortLevels,
-        localSessions,
         modelModes,
         permissionModes,
-        selectedHomeDir,
         setSelectedAgent,
         setSelectedMachineId,
-        setSelectedPath,
-        setWorktreeKey,
     ]);
 
     const handleComposerSettingsPickerSelect = React.useCallback((key: string) => {
@@ -1435,10 +1464,13 @@ function NewSessionScreen() {
                 }
                 break;
             }
+            case 'resume':
+                applyResumeSelection(key);
+                break;
         }
         setNativePickerMeasuredHeight(null);
         setComposerSettingsPage(null);
-    }, [composerSettingsPage, draft.setEffortLevel, draft.setModelMode, draft.setPermissionMode, effortLevels, modelModes, permissionModes]);
+    }, [applyResumeSelection, composerSettingsPage, draft.setEffortLevel, draft.setModelMode, draft.setPermissionMode, effortLevels, modelModes, permissionModes]);
 
     // Spawn session handler
     const handleSend = React.useCallback(async (approvedNewDirectoryCreation: boolean = false) => {
@@ -1706,7 +1738,10 @@ function NewSessionScreen() {
 
     const nativeComposerPickerEstimatedHeight = React.useMemo(() => {
         if (activePicker === 'settings' && composerSettingsPage && composerSettingsPickerData) {
-            const optionCount = composerSettingsPickerData.items.length;
+            const fixedCount = 'fixedItems' in composerSettingsPickerData
+                ? (composerSettingsPickerData.fixedItems?.length ?? 0)
+                : 0;
+            const optionCount = composerSettingsPickerData.items.length + fixedCount;
             return Math.min(
                 NATIVE_PICKER_ESTIMATED_HEIGHT,
                 66 + optionCount * 40,
@@ -1885,7 +1920,7 @@ function NewSessionScreen() {
                                         >
                                             <Ionicons name="time-outline" size={15} color={theme.colors.textSecondary} />
                                             <Text style={[styles.configLabel, styles.configValueText]} numberOfLines={1}>
-                                                {resumeSession ? (resumeSession.summary || resumeSession.id) : 'new conversation'}
+                                                {resumeSession ? (resumeSession.summary || resumeSession.id) : t('newSession.resumeNew')}
                                             </Text>
                                             <Ionicons name="chevron-down" size={13} color={theme.colors.textSecondary} />
                                         </BubblePressable>
@@ -2350,9 +2385,11 @@ const WORKTREE_FIXED_ITEMS: PickerItem[] = [
     { key: '__new__', label: 'new worktree' },
 ];
 
-const RESUME_FIXED_ITEMS: PickerItem[] = [
-    { key: '__none__', label: 'new conversation' },
-];
+// Built per call rather than hoisted to a const so the label follows a
+// language switch instead of freezing at module-load time.
+function getResumeFixedItems(): PickerItem[] {
+    return [{ key: '__none__', label: t('newSession.resumeNew') }];
+}
 
 const styles = StyleSheet.create((theme) => ({
     container: {

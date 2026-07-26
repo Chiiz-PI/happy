@@ -296,6 +296,8 @@ export const pt: TranslationStructure = {
         title: 'Iniciar nova sessão',
         machineOffline: 'A máquina está offline',
         switchMachinesHint: '• Troque de máquina clicando na máquina acima',
+        resumeTitle: 'Conversa',
+        resumeNew: 'Nova conversa',
     },
 
     sessionHistory: {

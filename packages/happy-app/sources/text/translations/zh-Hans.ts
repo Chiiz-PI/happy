@@ -298,6 +298,8 @@ export const zhHans: TranslationStructure = {
         title: '开始新会话',
         machineOffline: '设备离线',
         switchMachinesHint: '• 点击上方的设备来切换设备',
+        resumeTitle: '对话',
+        resumeNew: '新对话',
     },
 
     sessionHistory: {

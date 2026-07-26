@@ -310,6 +310,8 @@ export const en = {
         title: 'Start New Session',
         machineOffline: 'Machine is offline',
         switchMachinesHint: '• Switch machines by clicking on the machine above',
+        resumeTitle: 'Conversation',
+        resumeNew: 'New conversation',
     },
 
     sessionHistory: {
